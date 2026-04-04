@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}Live Scanner{% endblock %}
+{% block subtitle %}{{ active_class.course_code }} — Real-Time Attendance{% endblock %}
+
+{% block extra_css %}
+<style>
+.layout { display:grid; grid-template-columns:1fr 1.8fr 1fr; gap:18px; margin-top:20px; }
+@media(max-width:1024px){ .layout { grid-template-columns:1fr; } }
+.class-card {
+    background:linear-gradient(135deg,#667eea,#764ba2);
+    color:#fff; padding:18px; border-radius:12px; margin-bottom:14px;
+}
+.phase-badge { display:inline-block; padding:6px 18px; border-radius:20px; font-weight:bold; font-size:.95em; margin:6px 0; }
+.phase-entry      { background:#e3f2fd; color:#1976d2; }
+.phase-monitoring { background:#fff3e0; color:#f57c00; }
+.phase-exit       { background:#e8f5e9; color:#388e3c; }
+.phase-closed     { background:#ffebee; color:#d32f2f; }
+.geo-info { background:#f0f4ff; border-radius:10px; padding:14px; margin-bottom:14px; }
+.attendance-list { max-height:460px; overflow-y:auto; }
+.score-badge { display:inline-block; padding:3px 9px; border-radius:10px; font-weight:bold; font-size:.82em; }
+.score-high { background:#d4edda; color:#155724; }
+.score-mid  { background:#fff3cd; color:#856404; }
+.score-low  { background:#f8d7da; color:#721c24; }
+.row-bad    { background:#fff8e1; }
+.ctrl-box   { background:#f8f9fa; padding:14px; border-radius:10px; margin-top:14px; }
+.ctrl       { width:100%; margin:5px 0; padding:10px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/lecturer/dashboard" class="btn btn-secondary">← Dashboard</a>
+    <button onclick="endClass()" class="btn btn-danger">🔴 End Class</button>
+</div>
+
+<div class="layout">
+
+    <!-- LEFT: Class info + geofence -->
+    <div>
+        <div class="class-card">
+            <h3>{{ active_class.course_code }}</h3>
+            <p>{{ active_class.course_title }}</p>
+            <p style="font-size:.82em;opacity:.85;margin-top:6px">
+                Started: {{ active_class.start_time }}<br>
+                Duration: {{ active_class.duration_minutes }} min
+            </p>
+            <span id="phaseBadge" class="phase-badge phase-{{ active_class.status|lower }}">
+                {{ active_class.status }}
+            </span>
+        </div>
+
+        <div class="geo-info">
+            <strong>📍 Geofence</strong>
+            {% if active_class.latitude %}
+            <p style="font-size:.85em;margin-top:8px">
+                <strong>Centre:</strong><br>
+                {{ "%.5f"|format(active_class.latitude) }},
+                {{ "%.5f"|format(active_class.longitude) }}<br>
+                <strong>Radius:</strong> {{ active_class.geofence_radius|int }}m<br>
+                <strong>Accuracy limit:</strong> ±{{ config.GPS_ACCURACY_THRESHOLD }}m
+            </p>
+            <span style="color:#28a745;font-size:.85em;font-weight:bold">✅ Active — location required</span>
+            {% else %}
+            <p style="color:#856404;font-size:.85em;margin-top:6px">
+                ⚠️ Not configured — any location accepted
+            </p>
+            {% endif %}
+        </div>
+
+        <div class="ctrl-box">
+            <strong>⚙️ Controls</strong>
+            <select id="phaseSelect" style="width:100%;padding:8px;margin:8px 0;border:1px solid #ddd;border-radius:6px">
+                <option>ENTRY</option><option>MONITORING</option>
+                <option>EXIT</option><option>CLOSED</option>
+            </select>
+            <button class="btn ctrl" onclick="forcePhase()">Force Phase</button>
+            <label style="display:block;margin-top:8px;font-size:.82em;font-weight:600">Duration (min)</label>
+            <input type="number" id="durInput" value="{{ active_class.duration_minutes }}"
+                   min="10" max="300"
+                   style="width:100%;padding:8px;margin-bottom:6px;border:1px solid #ddd;border-radius:6px">
+            <button class="btn btn-secondary ctrl" onclick="adjustDur()">Update Duration</button>
+            <a href="/class/{{ active_class.id }}/export/csv"
+               class="btn btn-success ctrl" style="display:block;text-align:center;margin-top:6px">
+               📥 Export CSV
+            </a>
+        </div>
+    </div>
+
+    <!-- MIDDLE: QR Scanner -->
+    <div>
+        <div class="card">
+            <h3>📷 QR Scanner</h3>
+            <p style="font-size:.83em;color:#666;margin-bottom:10px">
+                Students show their permanent QR code. Location is verified automatically.
+            </p>
+            <div id="reader"></div>
+            <div id="scanResult" style="margin-top:14px;min-height:60px"></div>
+        </div>
+    </div>
+
+    <!-- RIGHT: Live attendance -->
+    <div>
+        <div class="card">
+            <h3>👥 Live Feed <span id="cnt" style="font-size:.8em;color:#888">(0)</span></h3>
+            <div class="attendance-list">
+                <table>
+                    <thead><tr><th>Student</th><th>Score</th><th>Status</th></tr></thead>
+                    <tbody id="attBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<script>
+const CID    = {{ active_class.id }};
+let   locked = false;
+
+// QR Scanner — sends location with every scan
+const scanner = new Html5Qrcode("reader");
+scanner.start(
+    { facingMode: "environment" },
+    { fps: 8, qrbox: { width: 260, height: 260 } },
+    async (text) => {
+        if (locked) return;
+        locked = true;
+
+        // Get high-accuracy GPS
+        let lat = null, lng = null, acc = null;
+        try {
+            const p = await new Promise((res, rej) =>
+                navigator.geolocation.getCurrentPosition(res, rej, {
+                    enableHighAccuracy: true,
+                    timeout: 5000,
+                    maximumAge: 0        // never use cached position
+                }));
+            lat = p.coords.latitude;
+            lng = p.coords.longitude;
+            acc = p.coords.accuracy;
+        } catch(e) {
+            // If geofence is configured, GPS is required
+            if ({{ 'true' if active_class.latitude else 'false' }}) {
+                showResult({status:'error', message:'📍 Cannot get location — ensure GPS is enabled'});
+                setTimeout(() => locked = false, 2500);
+                return;
+            }
+        }
+
+        const fd = new FormData();
+        fd.append('qr_data',  text);
+        fd.append('class_id', CID);
+        if (lat !== null) {
+            fd.append('latitude',  lat);
+            fd.append('longitude', lng);
+            fd.append('accuracy',  acc);
+        }
+
+        try {
+            const d = await (await fetch('/process_qr', {method:'POST', body:fd})).json();
+            showResult(d);
+        } catch(e) {
+            showResult({status:'error', message:'Network error'});
+        }
+        setTimeout(() => locked = false, 2500);
+    },
+    () => {}
+).catch(e => console.error('Scanner:', e));
+
+function showResult(d) {
+    const bg = d.status==='ok' ? '#d4edda' : d.status==='warning' ? '#fff3cd' : '#f8d7da';
+    const tc = d.status==='ok' ? '#155724' : d.status==='warning' ? '#856404' : '#721c24';
+    let h = `<div style="background:${bg};color:${tc};padding:12px;border-radius:8px;border-left:4px solid ${tc}">
+        <strong>${d.message}</strong>`;
+    if (d.student) h += `<br><small>👤 ${d.student.name} — ${d.student.matric}${d.student.distance ? ' · '+d.student.distance : ''}</small>`;
+    if (d.occupancy !== undefined) h += `<br><small>📊 Occupancy: ${d.occupancy.toFixed(1)}%</small>`;
+    h += '</div>';
+    document.getElementById('scanResult').innerHTML = h;
+}
+
+// Live feed
+async function live() {
+    try {
+        const d = await (await fetch(`/lecturer/live/${CID}`)).json();
+        if (!d.active) return;
+        const badge = document.getElementById('phaseBadge');
+        badge.textContent = d.status;
+        badge.className   = `phase-badge phase-${d.status.toLowerCase()}`;
+        document.getElementById('cnt').textContent = `(${d.students.length})`;
+        document.getElementById('attBody').innerHTML = d.students.map(s => {
+            const sc  = s.score || 0;
+            const cls = sc >= 80 ? 'score-high' : sc >= 50 ? 'score-mid' : 'score-low';
+            const flags = `${s.face_ok?' 🔵':''}${!s.geo_ok?' ⚠️':''}${s.geo_violations>0?' ('+s.geo_violations+'📍)':''}`;
+            const st  = s.exit_time ? '✅' : s.entry_time ? '🟡' : '⬜';
+            return `<tr class="${!s.geo_ok?'row-bad':''}">
+                <td><strong>${s.name}</strong><br><small style="color:#666">${s.matric}</small></td>
+                <td><span class="score-badge ${cls}">${sc}/100</span></td>
+                <td style="font-size:.85em">${st}${flags}</td>
+            </tr>`;
+        }).join('');
+    } catch(e) {}
+}
+setInterval(live, 4000); live();
+
+async function endClass() {
+    if (!confirm('End this class session?')) return;
+    await fetch(`/class/${CID}/end`, {method:'POST'});
+    location.href = '/lecturer/dashboard';
+}
+async function forcePhase() {
+    const fd = new FormData();
+    fd.append('phase', document.getElementById('phaseSelect').value);
+    await fetch(`/class/${CID}/force_phase`, {method:'POST', body:fd});
+    live();
+}
+async function adjustDur() {
+    const fd = new FormData();
+    fd.append('duration', document.getElementById('durInput').value);
+    await fetch(`/class/${CID}/adjust_duration`, {method:'POST', body:fd});
+    alert('✅ Duration updated!');
+}
+</script>
+{% endblock %}

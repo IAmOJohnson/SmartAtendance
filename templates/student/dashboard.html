@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}Student Dashboard{% endblock %}
+
+{% block extra_js %}
+<script>
+// Check for EXIT phase notifications every 5 seconds
+setInterval(checkForExitPhase, 5000);
+
+function checkForExitPhase() {
+    fetch('/student/check_exit_phase')
+        .then(response => response.json())
+        .then(data => {
+            if (data.exit_phase_active && data.classes.length > 0) {
+                showExitAlert(data.classes);
+            }
+        })
+        .catch(error => console.error('Error:', error));
+}
+
+function showExitAlert(classes) {
+    // Check if alert already shown
+    if (document.getElementById('exit-alert')) return;
+    
+    const alert = document.createElement('div');
+    alert.id = 'exit-alert';
+    alert.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: linear-gradient(135deg, #f57c00 0%, #ff9800 100%);
+        color: white;
+        padding: 20px 30px;
+        border-radius: 10px;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        z-index: 10000;
+        animation: slideIn 0.5s;
+        max-width: 400px;
+    `;
+    
+    alert.innerHTML = `
+        <h3 style="margin: 0 0 10px 0; color: white;">🚪 EXIT PHASE ACTIVE!</h3>
+        <p style="margin: 0 0 15px 0; color: white;">
+            ${classes.length} class(es) are now in EXIT phase. Mark your exit before it's too late!
+        </p>
+        <div>
+            ${classes.map(c => `
+                <div style="background: rgba(255,255,255,0.2); padding: 8px; border-radius: 5px; margin-bottom: 8px;">
+                    <strong>${c.course_code}</strong> - ${c.course_title}
+                </div>
+            `).join('')}
+        </div>
+        <a href="/student/attend_class" style="
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 25px;
+            background: white;
+            color: #f57c00;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        ">Mark Exit Now</a>
+        <button onclick="this.parentElement.remove()" style="
+            margin-left: 10px;
+            padding: 10px 25px;
+            background: transparent;
+            color: white;
+            border: 2px solid white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        ">Dismiss</button>
+    `;
+    
+    document.body.appendChild(alert);
+    
+    // Auto-remove after 30 seconds
+    setTimeout(() => {
+        if (alert.parentElement) alert.remove();
+    }, 30000);
+}
+
+// Add animation
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(450px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+`;
+document.head.appendChild(style);
+</script>
+{% endblock %}
+{% block subtitle %}Welcome, {{ name }}{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/student/logout" class="btn btn-danger">🚪 Logout</a>
+</div>
+
+<h2 style="color: #333; margin-bottom: 30px;">Student Dashboard</h2>
+
+<!-- Quick Actions -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+    
+    <!-- Attend Class -->
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 4em; margin-bottom: 20px;">📚</div>
+        <h3>Attend Class</h3>
+        <p style="color: #666; margin-bottom: 20px;">
+            View active classes and mark your attendance
+        </p>
+        <a href="/student/attend_class" class="btn" style="width: 80%;">Attend Class</a>
+    </div>
+
+    <!-- Attendance History -->
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 4em; margin-bottom: 20px;">📊</div>
+        <h3>Attendance History</h3>
+        <p style="color: #666; margin-bottom: 20px;">
+            View your past attendance records
+        </p>
+        <a href="/attendance_report" class="btn" style="width: 80%;">View History</a>
+    </div>
+
+</div>
+
+<!-- Instructions -->
+<div class="card" style="margin-top: 30px;">
+    <h3>📖 How to Mark Attendance</h3>
+    <ol style="color: #666; line-height: 2;">
+        <li>Click on <strong>"Attend Class"</strong> above</li>
+        <li>Select an active class from your department</li>
+        <li>Follow the verification method required:
+            <ul style="margin-top: 10px;">
+                <li><strong>🔵 QR Only:</strong> Show your QR code to the lecturer's scanner</li>
+                <li><strong>🟢 QR + Face:</strong> Scan QR code, then verify with face recognition</li>
+                <li><strong>🔴 QR + Fingerprint:</strong> Scan QR code, then verify with fingerprint (unavailable)</li>
+            </ul>
+        </li>
+        <li>Make sure to mark both <strong>ENTRY</strong> and <strong>EXIT</strong></li>
+    </ol>
+
+    <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 8px;">
+        <strong>⚠️ Important:</strong> You can only attend classes for courses in your department!
+    </div>
+</div>
+{% endblock %}

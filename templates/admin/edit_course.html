@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Course{% endblock %}
+{% block subtitle %}Edit Course Information{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/admin/courses" class="btn btn-secondary">← Back to Courses</a>
+</div>
+
+<h2 style="color: #333; margin-bottom: 30px;">Edit Course</h2>
+
+<div class="card">
+    <form method="POST">
+        <div class="form-group">
+            <label for="course_code">Course Code</label>
+            <input type="text" id="course_code" name="course_code" value="{{ course.course_code }}" required>
+        </div>
+        <div class="form-group">
+            <label for="course_title">Course Title</label>
+            <input type="text" id="course_title" name="course_title" value="{{ course.course_title }}" required>
+        </div>
+        <div class="form-group">
+            <label for="department_id">Select Department</label>
+            <select id="department_id" name="department_id" required>
+                <option value="">-- Select Department --</option>
+                {% for dept in departments %}
+                    <option value="{{ dept.id }}" {% if dept.id == course.department_id %}selected{% endif %}>
+                        {{ dept.name }} ({{ dept.faculty_name }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-success">💾 Update Course</button>
+        <a href="/admin/courses" class="btn btn-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %}

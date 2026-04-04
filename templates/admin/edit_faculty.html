@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Faculty{% endblock %}
+{% block subtitle %}Edit Faculty Information{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/admin/faculties" class="btn btn-secondary">← Back to Faculties</a>
+</div>
+
+<h2 style="color: #333; margin-bottom: 30px;">Edit Faculty</h2>
+
+<div class="card">
+    <form method="POST">
+        <div class="form-group">
+            <label for="name">Faculty Name</label>
+            <input type="text" id="name" name="name" value="{{ faculty.name }}" required>
+        </div>
+        <button type="submit" class="btn btn-success">💾 Update Faculty</button>
+        <a href="/admin/faculties" class="btn btn-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %}

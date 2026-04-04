@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Lecturer Dashboard{% endblock %}
+{% block subtitle %}Welcome, {{ name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.geo-box {
+    background:#f0f4ff; border:2px dashed #667eea;
+    border-radius:10px; padding:16px; margin-top:14px;
+}
+.geo-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+@media(max-width:600px){ .geo-grid { grid-template-columns:1fr; } }
+#geoStatus { font-size:.82em; color:#667eea; min-height:18px; margin-top:6px; }
+.active-card {
+    background:linear-gradient(135deg,#667eea,#764ba2);
+    color:#fff; border-radius:12px; padding:22px; margin-bottom:20px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/lecturer/logout" class="btn btn-danger">🚪 Logout</a>
+    <a href="/attendance_report" class="btn btn-secondary">📊 Reports</a>
+</div>
+
+{% if active_class %}
+<div class="active-card">
+    <h3 style="color:#fff">🟢 Active Session</h3>
+    <p><strong>{{ active_class.course_code }}</strong> — {{ active_class.course_title }}</p>
+    <p style="font-size:.85em;opacity:.85;margin:6px 0">
+        Status: <strong>{{ active_class.status }}</strong> &nbsp;|&nbsp;
+        Started: {{ active_class.start_time }} &nbsp;|&nbsp;
+        Duration: {{ active_class.duration_minutes }} min
+    </p>
+    {% if active_class.latitude %}
+    <p style="font-size:.82em;opacity:.8">
+        📍 Geofence: {{ "%.4f"|format(active_class.latitude) }},
+        {{ "%.4f"|format(active_class.longitude) }}
+        ({{ active_class.geofence_radius|int }}m radius)
+    </p>
+    {% else %}
+    <p style="font-size:.82em;opacity:.8">📍 Geofence: not configured</p>
+    {% endif %}
+    <a href="/lecturer/scan" class="btn btn-success" style="margin-top:10px">📱 Open Scanner</a>
+</div>
+{% else %}
+<div class="card" style="background:#f8f9fa;text-align:center;padding:30px;margin-bottom:20px">
+    <h3 style="color:#aaa">No Active Session</h3>
+    <p style="color:#999;margin-top:6px">Create a class below to start attendance.</p>
+</div>
+{% endif %}
+
+<!-- Create New Class -->
+<div class="card">
+    <h3>➕ Create New Class Session</h3>
+    <form method="POST" action="/lecturer/create_class">
+
+        <div class="form-group">
+            <label>Select Course</label>
+            <select name="course_id" required>
+                <option value="">-- Select Course --</option>
+                {% for c in courses %}
+                <option value="{{ c.id }}">{{ c.course_code }} — {{ c.course_title }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Class Duration</label>
+            <select name="duration" required>
+                <option value="">-- Select Duration --</option>
+                <option value="30">30 minutes</option>
+                <option value="45">45 minutes</option>
+                <option value="60">60 minutes (1 hr)</option>
+                <option value="90">90 minutes (1.5 hrs)</option>
+                <option value="120">120 minutes (2 hrs)</option>
+                <option value="150">150 minutes (2.5 hrs)</option>
+                <option value="180">180 minutes (3 hrs)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Verification Method</label>
+            <select name="verification_method" required>
+                <option value="QR">🔵 QR Code Only</option>
+                <option value="QR_FACE">🟢 QR + Face Recognition</option>
+                <option value="QR_FINGERPRINT" disabled>🔴 QR + Fingerprint (coming soon)</option>
+            </select>
+        </div>
+
+        <!-- Geofencing -->
+        <div class="geo-box">
+            <strong>📍 Geofencing</strong>
+            <span style="font-size:.8em;color:#888;font-weight:normal"> (optional but recommended)</span>
+            <p style="font-size:.82em;color:#666;margin:6px 0">
+                Set your classroom location so students must be physically present to mark attendance.
+            </p>
+            <button type="button" class="btn" onclick="getLocation()" style="margin-bottom:8px">
+                🎯 Use My Current Location
+            </button>
+            <div id="geoStatus"></div>
+            <div class="geo-grid" style="margin-top:10px">
+                <div class="form-group" style="margin:0">
+                    <label style="font-size:.82em">Latitude</label>
+                    <input type="number" name="latitude" id="latInput"
+                           step="any" placeholder="e.g. 6.5244">
+                </div>
+                <div class="form-group" style="margin:0">
+                    <label style="font-size:.82em">Longitude</label>
+                    <input type="number" name="longitude" id="lngInput"
+                           step="any" placeholder="e.g. 3.3792">
+                </div>
+                <div class="form-group" style="margin:0">
+                    <label style="font-size:.82em">Radius (metres)</label>
+                    <input type="number" name="geofence_radius" id="radiusInput"
+                           value="100" min="20" max="1000">
+                </div>
+            </div>
+            <p style="font-size:.78em;color:#888;margin-top:6px">
+                💡 Leave blank to disable geofencing.
+            </p>
+        </div>
+
+        <button type="submit" class="btn btn-success"
+                style="margin-top:20px;width:100%;padding:14px;font-size:1.05em">
+            🚀 Start Class Session
+        </button>
+    </form>
+</div>
+
+{% if active_class %}
+<div class="card">
+    <h3>🔗 Quick Actions</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a href="/lecturer/scan" class="btn">📱 Scanner</a>
+        <a href="/class/{{ active_class.id }}/export/csv" class="btn btn-success">📥 Export CSV</a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function getLocation() {
+    const st = document.getElementById('geoStatus');
+    st.textContent = '⏳ Getting location...';
+    if (!navigator.geolocation) {
+        st.textContent = '❌ Geolocation not supported'; return;
+    }
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            document.getElementById('latInput').value = pos.coords.latitude.toFixed(6);
+            document.getElementById('lngInput').value = pos.coords.longitude.toFixed(6);
+            st.innerHTML = `✅ Location set: <strong>${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}</strong> (±${Math.round(pos.coords.accuracy)}m)`;
+            st.style.color = '#28a745';
+        },
+        err => {
+            st.textContent = '❌ ' + err.message;
+            st.style.color = '#dc3545';
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
+</script>
+{% endblock %}

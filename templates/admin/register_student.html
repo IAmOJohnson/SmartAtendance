@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Register Student{% endblock %}
+{% block subtitle %}Student Registration{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/admin" class="btn btn-secondary">← Back to Admin</a>
+    <a href="/" class="btn btn-secondary">🏠 Home</a>
+</div>
+
+<h2 style="color: #333; margin-bottom: 30px;">Register New Student</h2>
+
+<div class="card">
+    <form method="POST" enctype="multipart/form-data">
+        <div class="form-group">
+            <label for="name">Full Name</label>
+            <input type="text" id="name" name="name" placeholder="e.g., Jane Doe" required>
+        </div>
+
+        <div class="form-group">
+            <label for="matric">Matric Number</label>
+            <input type="text" id="matric" name="matric" placeholder="e.g., STU/2024/001" required>
+        </div>
+
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" placeholder="Enter secure password" required>
+        </div>
+
+        <div class="form-group">
+            <label for="department_id">Department</label>
+            <select id="department_id" name="department_id" required>
+                <option value="">-- Select Department --</option>
+                {% for dept in departments %}
+                    <option value="{{ dept.id }}">{{ dept.name }} ({{ dept.faculty_name }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="level">Level</label>
+            <select id="level" name="level" required>
+                <option value="">-- Select Level --</option>
+                <option value="100">100 Level</option>
+                <option value="200">200 Level</option>
+                <option value="300">300 Level</option>
+                <option value="400">400 Level</option>
+                <option value="500">500 Level</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="face_image">Profile Picture (for Face Recognition)</label>
+            <input type="file" id="face_image" name="face_image" accept="image/*" required>
+            <small style="color: #666; display: block; margin-top: 5px;">
+                📸 Upload a clear, front-facing photo. This will be your profile picture and used for face recognition attendance.
+            </small>
+        </div>
+
+        <button type="submit" class="btn btn-success">Register Student</button>
+    </form>
+</div>
+
+<div style="margin-top: 20px; padding: 15px; background: #d1ecf1; border-radius: 8px; border: 1px solid #0c5460;">
+    <strong>ℹ️ Important:</strong> Students can only mark attendance for courses in their department.
+</div>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Student Login{% endblock %}
+{% block subtitle %}Student Portal{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/" class="btn btn-secondary">← Back to Home</a>
+</div>
+
+<div style="max-width:500px;margin:50px auto;">
+    <div class="card">
+        <div style="text-align:center;margin-bottom:30px">
+            <div style="font-size:5em">👨‍🎓</div>
+            <h2 style="color:#333">Student Login</h2>
+        </div>
+        <form method="POST">
+            <div class="form-group">
+                <label>Matric Number</label>
+                <input type="text" name="matric" placeholder="Enter your Matric Number" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" placeholder="Enter your password" required>
+            </div>
+            <!-- Device binding — auto-generated, hidden -->
+            <input type="hidden" name="device_id" id="devId">
+            <button type="submit" class="btn" style="width:100%">Login</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+    const k = 'sa_dev';
+    let id = localStorage.getItem(k);
+    if (!id) { id = 'dev_' + Math.random().toString(36).substr(2,10) + Date.now().toString(36); localStorage.setItem(k, id); }
+    document.getElementById('devId').value = id;
+})();
+</script>
+{% endblock %}

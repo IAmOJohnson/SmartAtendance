@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Attend Class{% endblock %}
+{% block subtitle %}Active Classes{% endblock %}
+
+{% block extra_css %}
+<style>
+    .class-card {
+        border: 2px solid #ddd;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+        transition: all 0.3s;
+        cursor: pointer;
+    }
+    .class-card:hover {
+        border-color: #667eea;
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        transform: translateY(-3px);
+    }
+    .verification-badge {
+        display: inline-block;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-size: 0.9em;
+        font-weight: bold;
+        margin-top: 10px;
+    }
+    .qr-only { background: #e3f2fd; color: #1976d2; }
+    .qr-face { background: #e8f5e9; color: #388e3c; }
+    .qr-fingerprint { background: #ffebee; color: #d32f2f; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/student/dashboard" class="btn btn-secondary">← Back to Dashboard</a>
+</div>
+
+<h2 style="color: #333; margin-bottom: 30px;">Active Classes in Your Faculty</h2>
+
+{% if active_classes %}
+    <div style="margin-bottom: 20px; padding: 15px; background: #d1ecf1; border-radius: 8px;">
+        <strong>ℹ️ Found {{ active_classes|length }} active class(es)</strong>
+    </div>
+
+    {% for class in active_classes %}
+    <div class="class-card" onclick="attendClass({{ class.id }}, '{{ class.verification_method }}')">
+        <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 250px;">
+                <h3 style="color: #667eea; margin-bottom: 10px;">
+                    {{ class.course_code }} - {{ class.course_title }}
+                </h3>
+                <p style="color: #666; margin: 5px 0;">
+                    <strong>Department:</strong> {{ class.dept_name }}
+                </p>
+                <p style="color: #666; margin: 5px 0;">
+                    <strong>Lecturer:</strong> {{ class.lecturer_name }}
+                </p>
+                <p style="color: #666; margin: 5px 0;">
+                    <strong>Started:</strong> {{ class.start_time }}
+                </p>
+                <p style="color: #666; margin: 5px 0;">
+                    <strong>Duration:</strong> {{ class.duration_minutes }} minutes
+                </p>
+            </div>
+            
+            <div style="text-align: right;">
+                <div style="font-size: 2em; margin-bottom: 10px;">
+                    {% if class.status == 'ENTRY' %}
+                        🟢
+                    {% elif class.status == 'MONITORING' %}
+                        🟡
+                    {% elif class.status == 'EXIT' %}
+                        🟠
+                    {% else %}
+                        🔴
+                    {% endif %}
+                </div>
+                <div style="font-weight: bold; color: 
+                    {% if class.status == 'ENTRY' %}#1976d2
+                    {% elif class.status == 'MONITORING' %}#f57c00
+                    {% elif class.status == 'EXIT' %}#388e3c
+                    {% else %}#dc3545{% endif %}">
+                    {{ class.status }}
+                </div>
+                
+                <span class="verification-badge 
+                    {% if class.verification_method == 'QR' %}qr-only
+                    {% elif class.verification_method == 'QR_FACE' %}qr-face
+                    {% else %}qr-fingerprint{% endif %}">
+                    {% if class.verification_method == 'QR' %}
+                        🔵 QR Only
+                    {% elif class.verification_method == 'QR_FACE' %}
+                        🟢 QR + Face
+                    {% else %}
+                        🔴 QR + Fingerprint
+                    {% endif %}
+                </span>
+                
+                <!-- Show what action is needed based on phase -->
+                <div style="margin-top: 10px; padding: 10px; background: 
+                    {% if class.status == 'ENTRY' %}#e3f2fd
+                    {% elif class.status == 'MONITORING' %}#fff3e0
+                    {% elif class.status == 'EXIT' %}#e8f5e9
+                    {% else %}#ffebee{% endif %}; 
+                    border-radius: 5px; font-size: 0.9em;">
+                    {% if class.status == 'ENTRY' %}
+                        📍 <strong>Mark Entry</strong> - Scan QR to enter
+                    {% elif class.status == 'MONITORING' %}
+                        👁️ <strong>Stay Present</strong> - Scan every 15 mins
+                    {% elif class.status == 'EXIT' %}
+                        🚪 <strong>Mark Exit</strong> - Scan QR before leaving!
+                    {% else %}
+                        🔴 <strong>Closed</strong> - Too late
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <button class="btn" style="width: 100%; margin-top: 15px;">
+            📱 Mark Attendance
+        </button>
+    </div>
+    {% endfor %}
+
+{% else %}
+    <div style="text-align: center; padding: 80px 20px; color: #666;">
+        <div style="font-size: 5em; margin-bottom: 20px;">📚</div>
+        <h3>No Active Classes</h3>
+        <p>There are currently no active classes in your faculty.</p>
+        <p style="margin-top: 10px;">Check back when your lecturer starts a class session.</p>
+    </div>
+{% endif %}
+
+<script>
+function attendClass(classId, verificationMethod) {
+    window.location.href = '/student/verify_attendance/' + classId;
+}
+</script>
+
+{% endblock %}

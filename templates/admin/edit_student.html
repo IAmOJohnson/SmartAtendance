@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Student{% endblock %}
+{% block subtitle %}Edit Student Information{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/admin/students" class="btn btn-secondary">← Back to Students</a>
+</div>
+
+<h2 style="color: #333; margin-bottom: 30px;">Edit Student</h2>
+
+<div class="card">
+    <form method="POST">
+        <div class="form-group">
+            <label for="name">Full Name</label>
+            <input type="text" id="name" name="name" value="{{ student.name }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="matric">Matric Number</label>
+            <input type="text" id="matric" name="matric" value="{{ student.matric }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="password">New Password (leave blank to keep current)</label>
+            <input type="password" id="password" name="password" placeholder="Enter new password only if changing">
+        </div>
+
+        <div class="form-group">
+            <label for="department_id">Department</label>
+            <select id="department_id" name="department_id" required>
+                <option value="">-- Select Department --</option>
+                {% for dept in departments %}
+                    <option value="{{ dept.id }}" {% if dept.id == student.department_id %}selected{% endif %}>
+                        {{ dept.name }} ({{ dept.faculty_name }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="level">Level</label>
+            <select id="level" name="level" required>
+                <option value="">-- Select Level --</option>
+                <option value="100" {% if student.level == "100" %}selected{% endif %}>100 Level</option>
+                <option value="200" {% if student.level == "200" %}selected{% endif %}>200 Level</option>
+                <option value="300" {% if student.level == "300" %}selected{% endif %}>300 Level</option>
+                <option value="400" {% if student.level == "400" %}selected{% endif %}>400 Level</option>
+                <option value="500" {% if student.level == "500" %}selected{% endif %}>500 Level</option>
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-success">💾 Update Student</button>
+        <a href="/admin/students" class="btn btn-secondary">Cancel</a>
+    </form>
+</div>
+
+<div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffc107;">
+    <strong>⚠️ Note:</strong> Only enter a new password if you want to change it. Leave blank to keep the current password.
+</div>
+{% endblock %}

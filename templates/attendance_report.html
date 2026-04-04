@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Report{% endblock %}
+{% block subtitle %}All Attendance Records{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/" class="btn btn-secondary">🏠 Home</a>
+    {% if session.get('lecturer_id') %}
+        <a href="/lecturer/dashboard" class="btn btn-secondary">← Back to Dashboard</a>
+    {% elif session.get('student_id') %}
+        <a href="/student/dashboard" class="btn btn-secondary">← Back to Dashboard</a>
+    {% else %}
+        <a href="/admin" class="btn btn-secondary">← Back to Admin</a>
+    {% endif %}
+</div>
+
+<h2 style="color: #333; margin-bottom: 30px;">📊 Attendance Report</h2>
+
+<!-- Filters -->
+<div class="card" style="margin-bottom: 20px;">
+    <h3>🔍 Filter Reports</h3>
+    <form method="GET" action="/attendance_report">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="department">Department</label>
+                <select id="department" name="department" onchange="this.form.submit()">
+                    <option value="">All Departments</option>
+                    {% for dept in departments %}
+                        <option value="{{ dept.id }}" {% if selected_dept == dept.id|string %}selected{% endif %}>
+                            {{ dept.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="course">Course</label>
+                <select id="course" name="course" onchange="this.form.submit()">
+                    <option value="">All Courses</option>
+                    {% for course in courses %}
+                        <option value="{{ course.id }}" {% if selected_course == course.id|string %}selected{% endif %}>
+                            {{ course.course_code }} - {{ course.course_title }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="display: flex; align-items: flex-end;">
+                <a href="/attendance_report" class="btn btn-secondary" style="width: 100%;">Clear Filters</a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    {% if records %}
+        <div style="margin-bottom: 20px;">
+            <strong>Total Records:</strong> {{ records|length }}
+        </div>
+
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Student Name</th>
+                        <th>Matric Number</th>
+                        <th>Course Code</th>
+                        <th>Class Date</th>
+                        <th>Entry Time</th>
+                        <th>Exit Time</th>
+                        <th>Occupancy</th>
+                        <th>Final Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in records %}
+                    <tr>
+                        <td><strong>{{ record.name }}</strong></td>
+                        <td>{{ record.matric }}</td>
+                        <td>{{ record.course_code }}</td>
+                        <td>{{ record.start_time.split(' ')[0] }}</td>
+                        <td>
+                            {% if record.entry_time %}
+                                {{ record.entry_time }}
+                                {% if record.entry_valid == 1 %}
+                                    <span style="color: #28a745;">✓</span>
+                                {% else %}
+                                    <span style="color: #dc3545;" title="Late entry">⚠️</span>
+                                {% endif %}
+                            {% else %}
+                                <span style="color: #999;">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if record.exit_time %}
+                                {{ record.exit_time }}
+                                {% if record.exit_valid == 1 %}
+                                    <span style="color: #28a745;">✓</span>
+                                {% else %}
+                                    <span style="color: #dc3545;" title="Early exit">⚠️</span>
+                                {% endif %}
+                            {% else %}
+                                <span style="color: #dc3545; font-weight: bold;">NO EXIT</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if record.occupancy_percentage %}
+                                {{ "%.1f"|format(record.occupancy_percentage) }}%
+                                {% if record.occupancy_valid == 1 %}
+                                    <span style="color: #28a745;">✓</span>
+                                {% else %}
+                                    <span style="color: #dc3545;">✗</span>
+                                {% endif %}
+                            {% else %}
+                                <span style="color: #999;">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if record.entry_valid == 1 and record.exit_valid == 1 and record.occupancy_valid == 1 %}
+                                <span style="color: #28a745; font-weight: bold; background: #d4edda; padding: 5px 10px; border-radius: 5px;">
+                                    ✅ PRESENT
+                                </span>
+                            {% else %}
+                                <span style="color: #dc3545; font-weight: bold; background: #f8d7da; padding: 5px 10px; border-radius: 5px;">
+                                    ❌ ABSENT
+                                </span>
+                                <br><small style="color: #666;">
+                                    {% if record.entry_valid != 1 %}Late Entry. {% endif %}
+                                    {% if not record.exit_time %}No Exit. {% endif %}
+                                    {% if record.exit_valid != 1 and record.exit_time %}Early Exit. {% endif %}
+                                    {% if record.occupancy_valid != 1 %}Low Occupancy. {% endif %}
+                                </small>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 30px; text-align: center;">
+            <button onclick="window.print()" class="btn btn-secondary">🖨️ Print Report</button>
+        </div>
+    {% else %}
+        <div style="text-align: center; padding: 60px; color: #666;">
+            <div style="font-size: 4em; margin-bottom: 20px;">📋</div>
+            <h3>No Attendance Records Yet</h3>
+            <p>Attendance records will appear here once classes start and students mark attendance.</p>
+        </div>
+    {% endif %}
+</div>
+
+<style>
+@media print {
+    .nav-links, .btn {
+        display: none !important;
+    }
+    .container {
+        box-shadow: none !important;
+    }
+    table {
+        font-size: 0.9em;
+    }
+}
+</style>
+{% endblock %}

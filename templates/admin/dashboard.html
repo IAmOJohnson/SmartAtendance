@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard{% endblock %}
+{% block subtitle %}System Administration{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/" class="btn btn-secondary">🏠 Home</a>
+</div>
+
+<h2 style="color: #333; margin-bottom: 30px;">Admin Dashboard</h2>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+    
+    <!-- Faculties Management -->
+    <div class="card">
+        <h3>🏛️ Faculties</h3>
+        <p style="color: #666; margin-bottom: 15px;">Manage academic faculties</p>
+        <a href="/admin/faculties" class="btn">Manage Faculties</a>
+    </div>
+
+    <!-- Departments Management -->
+    <div class="card">
+        <h3>🏢 Departments</h3>
+        <p style="color: #666; margin-bottom: 15px;">Manage departments within faculties</p>
+        <a href="/admin/departments" class="btn">Manage Departments</a>
+    </div>
+
+    <!-- Courses Management -->
+    <div class="card">
+        <h3>📚 Courses</h3>
+        <p style="color: #666; margin-bottom: 15px;">Manage course offerings</p>
+        <a href="/admin/courses" class="btn">Manage Courses</a>
+    </div>
+
+    <!-- Lecturer Registration -->
+    <div class="card">
+        <h3>👨‍🏫 Lecturers</h3>
+        <p style="color: #666; margin-bottom: 15px;">Manage lecturer accounts</p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="/admin/lecturers" class="btn">View All</a>
+            <a href="/admin/register_lecturer" class="btn btn-success">Register New</a>
+        </div>
+    </div>
+
+    <!-- Student Registration -->
+    <div class="card">
+        <h3>👨‍🎓 Students</h3>
+        <p style="color: #666; margin-bottom: 15px;">Manage student accounts</p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="/admin/students" class="btn">View All</a>
+            <a href="/admin/register_student" class="btn btn-success">Register New</a>
+        </div>
+    </div>
+
+    <!-- Reports -->
+    <div class="card">
+        <h3>📊 Reports</h3>
+        <p style="color: #666; margin-bottom: 15px;">View attendance reports</p>
+        <a href="/attendance_report" class="btn">View Reports</a>
+    </div>
+
+</div>
+
+<div style="margin-top: 40px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
+    <h3 style="color: #667eea;">ℹ️ Quick Guide</h3>
+    <ol style="color: #666; line-height: 2;">
+        <li>First, create <strong>Faculties</strong></li>
+        <li>Then, create <strong>Departments</strong> under each faculty</li>
+        <li>Add <strong>Courses</strong> to departments</li>
+        <li>Register <strong>Lecturers</strong> and assign them to departments</li>
+        <li>Register <strong>Students</strong> and assign them to departments</li>
+        <li>Lecturers can now create classes and take attendance!</li>
+    </ol>
+</div>
+{% endblock %}

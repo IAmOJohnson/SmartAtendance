@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Lecturer{% endblock %}
+{% block subtitle %}Edit Lecturer Information{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/admin/lecturers" class="btn btn-secondary">← Back to Lecturers</a>
+</div>
+
+<h2 style="color: #333; margin-bottom: 30px;">Edit Lecturer</h2>
+
+<div class="card">
+    <form method="POST">
+        <div class="form-group">
+            <label for="name">Full Name</label>
+            <input type="text" id="name" name="name" value="{{ lecturer.name }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="staff_id">Staff ID</label>
+            <input type="text" id="staff_id" name="staff_id" value="{{ lecturer.staff_id }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="email">Email Address</label>
+            <input type="email" id="email" name="email" value="{{ lecturer.email }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="password">New Password (leave blank to keep current)</label>
+            <input type="password" id="password" name="password" placeholder="Enter new password only if changing">
+        </div>
+
+        <div class="form-group">
+            <label for="department_id">Department</label>
+            <select id="department_id" name="department_id" required>
+                <option value="">-- Select Department --</option>
+                {% for dept in departments %}
+                    <option value="{{ dept.id }}" {% if dept.id == lecturer.department_id %}selected{% endif %}>
+                        {{ dept.name }} ({{ dept.faculty_name }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-success">💾 Update Lecturer</button>
+        <a href="/admin/lecturers" class="btn btn-secondary">Cancel</a>
+    </form>
+</div>
+
+<div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 8px; border: 1px solid #ffc107;">
+    <strong>⚠️ Note:</strong> Only enter a new password if you want to change it. Leave blank to keep the current password.
+</div>
+{% endblock %}

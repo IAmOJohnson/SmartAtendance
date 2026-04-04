@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}My QR Code{% endblock %}
+{% block subtitle %}Permanent Student QR{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/student/dashboard" class="btn btn-secondary">← Dashboard</a>
+</div>
+
+<div style="max-width:560px;margin:0 auto">
+    <div class="card" style="text-align:center">
+        <h2 style="color:#333;margin-bottom:16px">📱 My QR Code</h2>
+        <p style="color:#666;font-size:.9em;margin-bottom:20px">
+            This is your permanent QR code — it never changes.<br>
+            Use <strong>Attend a Class</strong> to show it during a live session.
+        </p>
+
+        <div style="background:#fff;padding:16px;border-radius:12px;display:inline-block;box-shadow:0 4px 15px rgba(0,0,0,.1)">
+            {% if qr_path %}
+                <img src="{{ qr_path }}" alt="My QR Code" style="width:220px;height:220px;display:block">
+            {% else %}
+                <div id="qrcode" style="display:inline-block"></div>
+            {% endif %}
+        </div>
+
+        <p style="color:#888;margin-top:16px;font-size:.85em">Student ID: {{ student_id }}</p>
+
+        <button onclick="window.print()" class="btn btn-secondary" style="margin-top:10px">🖨️ Print</button>
+    </div>
+
+    <div class="card" style="background:#fff3cd;border:1px solid #ffc107">
+        <h3 style="color:#856404">⚠️ Important</h3>
+        <ul style="color:#856404;line-height:2;margin-top:8px">
+            <li>Your location is checked when the QR is scanned</li>
+            <li>You must be <strong>inside the classroom</strong> for attendance to count</li>
+            <li>Enable GPS on your phone before going to class</li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h3>How it works</h3>
+        <ol style="color:#666;line-height:2">
+            <li>Go to <strong>Attend a Class</strong> when a session is active</li>
+            <li>Select your class → open <strong>Verify Attendance</strong></li>
+            <li>Show your QR to the lecturer's scanner — GPS is checked automatically</li>
+            <li>Stay in class for heartbeat scans (≥75% presence needed)</li>
+            <li>Scan once more during EXIT phase to complete</li>
+        </ol>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if not qr_path %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+new QRCode(document.getElementById("qrcode"), {
+    text: "STUDENT:{{ student_id }}",
+    width: 220, height: 220,
+    correctLevel: QRCode.CorrectLevel.M
+});
+</script>
+{% endif %}
+<style>
+@media print {
+    .nav-links, .card h3, ol, .btn, .card:last-child { display:none !important; }
+    .container { box-shadow:none !important; }
+}
+</style>
+{% endblock %}

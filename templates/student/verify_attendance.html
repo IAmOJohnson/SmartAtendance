@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block title %}Verify Attendance{% endblock %}
+{% block subtitle %}{{ class_info.course_code }} — {{ class_info.course_title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px; }
+@media(max-width:768px){ .grid2 { grid-template-columns:1fr; } }
+
+.qr-card {
+    background:#fff; border:2px solid #667eea;
+    border-radius:16px; padding:24px; text-align:center;
+}
+.qr-card img, .qr-card canvas { border-radius:10px; max-width:220px; }
+
+/* GPS status */
+.gps-card { border-radius:12px; padding:16px; margin-bottom:14px; }
+.gps-searching { background:#f0f4ff; border:2px solid #667eea; }
+.gps-good      { background:#d4edda; border:2px solid #28a745; }
+.gps-bad       { background:#f8d7da; border:2px solid #dc3545; }
+.gps-inaccurate{ background:#fff3cd; border:2px solid #ffc107; }
+
+.gps-icon  { font-size:2.5em; }
+.gps-title { font-size:1.1em; font-weight:bold; margin:6px 0; }
+.gps-detail{ font-size:.82em; color:#555; }
+.accuracy-bar-wrap { background:#e0e0e0; border-radius:6px; height:10px; margin-top:8px; }
+.accuracy-bar      { height:10px; border-radius:6px; transition:width .5s; }
+
+/* Steps */
+.step-card { border:2px solid #e0e0e0; border-radius:12px; padding:16px; margin-bottom:12px; transition:.3s; }
+.step-card.active { border-color:#667eea; background:#f0f4ff; }
+.step-card.done   { border-color:#28a745; background:#f0fff4; }
+
+.score-big { font-size:2.8em; font-weight:bold; text-align:center; margin:10px 0; }
+.s-high { color:#28a745; } .s-mid { color:#ffc107; } .s-low { color:#dc3545; }
+#camFeed { width:100%; border-radius:8px; margin:8px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/student/attend_class" class="btn btn-secondary">← Back</a>
+</div>
+
+<div class="grid2">
+
+    <!-- LEFT: QR + GPS + Score -->
+    <div>
+        <!-- Static QR -->
+        <div class="qr-card" style="margin-bottom:16px">
+            <div style="font-size:.75em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">
+                Your QR Code
+            </div>
+            {% if qr_path %}
+                <img src="{{ qr_path }}" alt="Your QR Code" style="width:220px;height:220px">
+            {% else %}
+                <div id="qrcode" style="display:inline-block"></div>
+            {% endif %}
+            <p style="color:#555;font-size:.83em;margin-top:12px">
+                Show this to the lecturer's scanner.<br>
+                <strong>Your location is verified automatically.</strong>
+            </p>
+            <p style="font-size:.78em;color:#888">{{ verification_text }}</p>
+        </div>
+
+        <!-- GPS Status Panel -->
+        <div id="gpsCard" class="gps-card gps-searching">
+            <div class="gps-icon" id="gpsIcon">📡</div>
+            <div class="gps-title" id="gpsTitle">Acquiring GPS signal...</div>
+            <div class="gps-detail" id="gpsDetail">Please wait — this may take a few seconds</div>
+            <div class="accuracy-bar-wrap" style="margin-top:10px">
+                <div class="accuracy-bar" id="accBar" style="width:0%;background:#667eea"></div>
+            </div>
+            <div style="font-size:.75em;color:#888;margin-top:4px" id="accLabel"></div>
+        </div>
+
+        <!-- Score -->
+        <div class="card">
+            <strong>📊 Attendance Score</strong>
+            <div class="score-big" id="scoreEl">—</div>
+            <p style="text-align:center;font-size:.82em;color:#666">Updates after each scan</p>
+        </div>
+    </div>
+
+    <!-- RIGHT: Steps -->
+    <div>
+        <div class="card" style="text-align:center;margin-bottom:14px">
+            <strong>Class Phase</strong>
+            <div id="phaseEl" style="font-size:1.5em;font-weight:bold;color:#667eea;margin-top:6px">
+                {{ class_info.status }}
+            </div>
+        </div>
+
+        <div id="s1" class="step-card {% if class_info.status != 'ENTRY' %}done{% else %}active{% endif %}">
+            <strong>① Entry Scan</strong>
+            <p style="font-size:.84em;color:#666;margin-top:6px">
+                Show your QR to the lecturer's camera within ±10 minutes of class start.
+                You must be inside the classroom.
+            </p>
+            <div id="s1msg"></div>
+        </div>
+
+        <div id="s2" class="step-card {% if class_info.status == 'MONITORING' %}active{% endif %}">
+            <strong>② Stay Present</strong>
+            <p style="font-size:.84em;color:#666;margin-top:6px">
+                Stay in class. The lecturer will periodically scan your QR to record presence.
+                You need ≥75% of heartbeats inside the geofence.
+            </p>
+            <div id="s2msg"></div>
+        </div>
+
+        {% if class_info.verification_method == 'QR_FACE' %}
+        <div id="s3" class="step-card">
+            <strong>③ Face Verification</strong>
+            <video id="camFeed" autoplay muted playsinline style="display:none"></video>
+            <canvas id="snapCanvas" style="display:none"></canvas>
+            <button id="faceBtn" class="btn" onclick="doFace()"
+                    style="width:100%;margin-top:8px">📷 Verify My Face</button>
+            <div id="faceMsg" style="margin-top:8px"></div>
+        </div>
+        {% endif %}
+
+        <div id="s4" class="step-card {% if class_info.status == 'EXIT' %}active{% endif %}">
+            <strong>{% if class_info.verification_method == 'QR_FACE' %}④{% else %}③{% endif %} Exit Scan</strong>
+            <p style="font-size:.84em;color:#666;margin-top:6px">
+                Show QR again during the last 25% of class duration to complete attendance.
+            </p>
+            <div id="s4msg"></div>
+        </div>
+
+        <!-- Geofence status for student -->
+        {% if class_info.latitude %}
+        <div class="card" style="background:#f8f9fa">
+            <strong>📍 Classroom Geofence</strong>
+            <p style="font-size:.82em;color:#666;margin-top:6px">
+                Radius: <strong>{{ class_info.geofence_radius|int }}m</strong><br>
+                Your location is checked on every scan.
+            </p>
+            <div id="distEl" style="font-size:.85em;margin-top:6px;color:#667eea"></div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if not qr_path %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+new QRCode(document.getElementById("qrcode"), {
+    text: "STUDENT:{{ student_id }}",
+    width: 220, height: 220,
+    correctLevel: QRCode.CorrectLevel.M
+});
+</script>
+{% endif %}
+<script>
+const CID    = {{ class_info.id }};
+const SID    = {{ student_id }};
+const HAS_GEO = {{ 'true' if class_info.latitude else 'false' }};
+const MAX_ACC = {{ config.GPS_ACCURACY_THRESHOLD }};
+let   lastLat = null, lastLng = null;
+
+// ── GPS Watcher ────────────────────────────────────────────
+function startGPS() {
+    const card  = document.getElementById('gpsCard');
+    const icon  = document.getElementById('gpsIcon');
+    const title = document.getElementById('gpsTitle');
+    const detail= document.getElementById('gpsDetail');
+    const bar   = document.getElementById('accBar');
+    const label = document.getElementById('accLabel');
+    const distEl= document.getElementById('distEl');
+
+    if (!navigator.geolocation) {
+        card.className  = 'gps-card gps-bad';
+        icon.textContent  = '❌';
+        title.textContent = 'GPS not supported';
+        detail.textContent = 'Your browser does not support geolocation.';
+        return;
+    }
+
+    navigator.geolocation.watchPosition(
+        pos => {
+            const acc = pos.coords.accuracy;
+            lastLat   = pos.coords.latitude;
+            lastLng   = pos.coords.longitude;
+
+            // Accuracy bar: 0m = perfect, MAX_ACC+ = bad
+            const pct  = Math.max(0, Math.min(100, (1 - acc / MAX_ACC) * 100));
+            bar.style.width = pct + '%';
+            bar.style.background = acc <= MAX_ACC * 0.5 ? '#28a745'
+                                 : acc <= MAX_ACC       ? '#ffc107' : '#dc3545';
+            label.textContent = `GPS accuracy: ±${acc.toFixed(0)}m`;
+
+            if (acc <= MAX_ACC) {
+                card.className    = 'gps-card gps-good';
+                icon.textContent  = '✅';
+                title.textContent = 'Location ready';
+                detail.textContent = `${lastLat.toFixed(5)}, ${lastLng.toFixed(5)} · ±${acc.toFixed(0)}m`;
+            } else {
+                card.className    = 'gps-card gps-inaccurate';
+                icon.textContent  = '⚠️';
+                title.textContent = 'Weak GPS signal';
+                detail.textContent = `Accuracy ±${acc.toFixed(0)}m — move to open area or near a window`;
+            }
+        },
+        err => {
+            card.className    = 'gps-card gps-bad';
+            icon.textContent  = '❌';
+            title.textContent = 'Location denied';
+            detail.textContent = HAS_GEO
+                ? 'You MUST enable location to mark attendance for this class.'
+                : 'Location access denied — enable GPS for best results.';
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+}
+startGPS();
+
+// ── Poll status ────────────────────────────────────────────
+async function pollStatus() {
+    try {
+        const d = await (await fetch(`/student/check_qr_status/${CID}`)).json();
+        updateScore(d.score);
+        updatePhase(d.current_phase);
+        updateSteps(d);
+    } catch(e) {}
+}
+setInterval(pollStatus, 8000);
+pollStatus();
+
+function updateScore(s) {
+    if (s === null || s === undefined) return;
+    const el  = document.getElementById('scoreEl');
+    el.className = `score-big ${s >= 80 ? 's-high' : s >= 50 ? 's-mid' : 's-low'}`;
+    el.textContent = `${Math.round(s)}/100`;
+}
+function updatePhase(p) { document.getElementById('phaseEl').textContent = p; }
+function updateSteps(d) {
+    if (d.qr_verified) {
+        document.getElementById('s1').className = 'step-card done';
+        document.getElementById('s1msg').innerHTML = '<span style="color:#28a745">✅ Entry recorded</span>';
+        if (document.getElementById('s2'))
+            document.getElementById('s2').className = 'step-card active';
+    }
+    if (d.exit_marked) {
+        document.getElementById('s4').className = 'step-card done';
+        document.getElementById('s4msg').innerHTML = '<span style="color:#28a745">✅ Exit recorded</span>';
+    }
+    if (!d.geo_ok && d.geo_violations > 0) {
+        const el = document.getElementById('s2msg');
+        if (el) el.innerHTML = `<span style="color:#dc3545">⚠️ ${d.geo_violations} geofence violation(s)</span>`;
+    }
+}
+
+// ── Face ───────────────────────────────────────────────────
+{% if class_info.verification_method == 'QR_FACE' %}
+let stream = null;
+async function doFace() {
+    const btn = document.getElementById('faceBtn');
+    const vid = document.getElementById('camFeed');
+    const msg = document.getElementById('faceMsg');
+    if (!stream) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+            vid.srcObject = stream; vid.style.display = 'block';
+            btn.textContent = '📸 Capture & Verify';
+        } catch(e) { msg.innerHTML = '<span style="color:red">❌ Camera denied</span>'; }
+        return;
+    }
+    const snap = document.getElementById('snapCanvas');
+    snap.width = vid.videoWidth; snap.height = vid.videoHeight;
+    snap.getContext('2d').drawImage(vid, 0, 0);
+    btn.textContent = '⏳ Verifying...'; btn.disabled = true;
+    snap.toBlob(async blob => {
+        const fd = new FormData();
+        fd.append('face_image', blob, 'face.jpg');
+        fd.append('class_id', CID);
+        try {
+            const d = await (await fetch('/student/verify_face',{method:'POST',body:fd})).json();
+            if (d.status === 'success') {
+                msg.innerHTML = '<span style="color:#28a745">✅ Face verified!</span>';
+                document.getElementById('s3').className = 'step-card done';
+                stream.getTracks().forEach(t => t.stop()); stream = null; vid.style.display = 'none';
+            } else {
+                msg.innerHTML = `<span style="color:red">❌ ${d.message}</span>`;
+                btn.textContent = '📸 Try Again'; btn.disabled = false;
+            }
+        } catch(e) {
+            msg.innerHTML = '<span style="color:red">❌ Network error</span>';
+            btn.textContent = '📸 Try Again'; btn.disabled = false;
+        }
+    }, 'image/jpeg', 0.9);
+}
+{% endif %}
+</script>
+{% endblock %}
