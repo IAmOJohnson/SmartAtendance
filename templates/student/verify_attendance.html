@@ -3,30 +3,40 @@
 {% block subtitle %}{{ class_info.course_code }} — {{ class_info.course_title }}{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
 .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px; }
 @media(max-width:768px){ .grid2 { grid-template-columns:1fr; } }
 
+/* QR card */
 .qr-card {
     background:#fff; border:2px solid #667eea;
-    border-radius:16px; padding:24px; text-align:center;
-    margin-bottom:16px;
+    border-radius:16px; padding:20px; text-align:center; margin-bottom:16px;
 }
-.qr-card img { border-radius:10px; max-width:220px; }
+.qr-card img { border-radius:10px; max-width:200px; }
 
-/* GPS live panel */
-.gps-panel { border-radius:12px; padding:16px; margin-bottom:14px; transition:.4s; }
-.gps-searching  { background:#f0f4ff; border:2px solid #667eea; }
-.gps-good       { background:#d4edda; border:2px solid #28a745; }
-.gps-weak       { background:#fff3cd; border:2px solid #ffc107; }
-.gps-denied     { background:#f8d7da; border:2px solid #dc3545; }
+/* Map */
+#studentMap {
+    height:260px; border-radius:12px;
+    border:2px solid #ddd; margin-bottom:14px;
+    z-index:1;
+}
 
-.gps-icon  { font-size:2.2em; }
-.gps-title { font-size:1em; font-weight:bold; margin:6px 0; }
-.gps-detail{ font-size:.82em; color:#555; }
+/* GPS status badge */
+.gps-badge {
+    display:flex; align-items:center; gap:10px;
+    padding:12px 14px; border-radius:10px; margin-bottom:14px;
+    font-size:.85em; font-weight:600; transition:.4s;
+}
+.gps-searching  { background:#eef0ff; border:2px solid #667eea; color:#667eea; }
+.gps-good       { background:#d4edda; border:2px solid #28a745; color:#155724; }
+.gps-weak       { background:#fff3cd; border:2px solid #ffc107; color:#856404; }
+.gps-denied     { background:#f8d7da; border:2px solid #dc3545; color:#721c24; }
+.gps-dot        { width:14px; height:14px; border-radius:50%; flex-shrink:0; }
 
-.acc-bar-wrap { background:#e0e0e0; border-radius:6px; height:10px; margin-top:10px; }
-.acc-bar      { height:10px; border-radius:6px; transition:width .5s, background .5s; }
+/* Distance bar */
+.dist-bar-wrap  { background:#e9ecef; border-radius:6px; height:12px; margin:8px 0; overflow:hidden; }
+.dist-bar       { height:12px; border-radius:6px; transition:width .6s, background .6s; }
 
 /* Steps */
 .step-card { border:2px solid #e0e0e0; border-radius:12px; padding:16px; margin-bottom:12px; transition:.3s; }
@@ -46,48 +56,62 @@
 
 <div class="grid2">
 
-    <!-- LEFT: QR + GPS + Score -->
+    <!-- LEFT: QR + Map + Score -->
     <div>
+        <!-- QR -->
         <div class="qr-card">
-            <div style="font-size:.75em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">
+            <div style="font-size:.72em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">
                 Your QR Code
             </div>
             {% if qr_path %}
-                <img src="{{ qr_path }}" alt="Your QR Code" style="width:220px;height:220px">
+                <img src="{{ qr_path }}" alt="QR Code" style="width:200px;height:200px">
             {% else %}
                 <div id="qrcode" style="display:inline-block"></div>
             {% endif %}
-            <p style="color:#555;font-size:.83em;margin-top:12px">
+            <p style="color:#555;font-size:.82em;margin-top:10px">
                 Show this to the lecturer's scanner.<br>
-                <strong>Your location is checked automatically.</strong>
+                <strong>Location verified automatically.</strong>
             </p>
-            <p style="font-size:.78em;color:#888">{{ verification_text }}</p>
+            <p style="font-size:.76em;color:#888">{{ verification_text }}</p>
         </div>
 
-        <!-- Live GPS panel (reads from global watcher) -->
-        <div id="gpsPanel" class="gps-panel gps-searching">
-            <div style="display:flex;align-items:center;gap:12px">
-                <div class="gps-icon" id="gpsIcon">📡</div>
-                <div>
-                    <div class="gps-title" id="gpsTitle">Acquiring GPS…</div>
-                    <div class="gps-detail" id="gpsDetail">Location already being tracked</div>
+        <!-- GPS badge -->
+        <div id="gpsBadge" class="gps-badge gps-searching">
+            <div class="gps-dot" id="gpsDot" style="background:#667eea"></div>
+            <div>
+                <div id="gpsTitle">Acquiring GPS signal…</div>
+                <div id="gpsDetail" style="font-size:.78em;font-weight:normal;margin-top:2px">
+                    Allow location when prompted
                 </div>
             </div>
-            <div class="acc-bar-wrap">
-                <div class="acc-bar" id="accBar" style="width:0%;background:#667eea"></div>
-            </div>
-            <div style="font-size:.75em;color:#888;margin-top:4px" id="accLabel"></div>
         </div>
 
+        {% if class_info.latitude %}
+        <!-- Distance bar -->
+        <div style="background:#f8f9fa;border-radius:10px;padding:12px;margin-bottom:14px">
+            <div style="display:flex;justify-content:space-between;font-size:.82em;font-weight:600;margin-bottom:4px">
+                <span>📍 Distance to class</span>
+                <span id="distLabel">—</span>
+            </div>
+            <div class="dist-bar-wrap">
+                <div class="dist-bar" id="distBar" style="width:0%;background:#667eea"></div>
+            </div>
+            <div style="font-size:.75em;color:#888;margin-top:4px" id="distStatus">Waiting for GPS…</div>
+        </div>
+        {% endif %}
+
+        <!-- Leaflet map -->
+        <div id="studentMap"></div>
+
         <!-- Score -->
-        <div class="card">
-            <strong>📊 Attendance Score</strong>
+        <div class="card" style="padding:14px">
+            <strong>📊 Score</strong>
             <div class="score-big" id="scoreEl">—</div>
-            <p style="text-align:center;font-size:.82em;color:#666">Updates after each scan</p>
+            <p style="text-align:center;font-size:.8em;color:#666">Updates after each scan</p>
         </div>
     </div>
 
-    <!-- RIGHT: Steps -->
+    <!-- RIGHT: Steps + phase -->
     <div>
         <div class="card" style="text-align:center;margin-bottom:14px">
             <strong>Class Phase</strong>
@@ -98,18 +122,16 @@
 
         <div id="s1" class="step-card {% if class_info.status != 'ENTRY' %}done{% else %}active{% endif %}">
             <strong>① Entry Scan</strong>
-            <p style="font-size:.84em;color:#666;margin-top:6px">
-                Show your QR to the lecturer within ±10 minutes of class start.
-                You must be inside the classroom.
+            <p style="font-size:.83em;color:#666;margin-top:6px">
+                Show QR to lecturer within ±10 min of class start. You must be inside the geofence.
             </p>
             <div id="s1msg"></div>
         </div>
 
         <div id="s2" class="step-card {% if class_info.status == 'MONITORING' %}active{% endif %}">
             <strong>② Stay Present</strong>
-            <p style="font-size:.84em;color:#666;margin-top:6px">
-                Remain in class. Lecturer scans periodically to record presence.
-                Need ≥75% of heartbeats inside the geofence.
+            <p style="font-size:.83em;color:#666;margin-top:6px">
+                Remain inside the geofence. Lecturer scans periodically. Need ≥75% presence.
             </p>
             <div id="s2msg"></div>
         </div>
@@ -127,20 +149,20 @@
 
         <div id="s4" class="step-card {% if class_info.status == 'EXIT' %}active{% endif %}">
             <strong>{% if class_info.verification_method == 'QR_FACE' %}④{% else %}③{% endif %} Exit Scan</strong>
-            <p style="font-size:.84em;color:#666;margin-top:6px">
-                Show QR again during the last 25% of class duration to complete attendance.
+            <p style="font-size:.83em;color:#666;margin-top:6px">
+                Show QR during the last 25% of class duration to complete attendance.
             </p>
             <div id="s4msg"></div>
         </div>
 
         {% if class_info.latitude %}
-        <div class="card" style="background:#f8f9fa">
-            <strong>📍 Classroom Geofence</strong>
-            <p style="font-size:.82em;color:#666;margin-top:6px">
-                Radius: <strong>{{ class_info.geofence_radius|int }}m</strong> from class centre.<br>
-                Location is verified on every scan.
+        <div class="card" style="background:#eef0ff;border:1px solid #667eea;padding:12px">
+            <strong style="color:#667eea">📍 Geofence Info</strong>
+            <p style="font-size:.82em;color:#444;margin-top:6px;line-height:1.6">
+                Radius: <strong>{{ class_info.geofence_radius|int }}m</strong><br>
+                The green circle on the map is your classroom boundary.<br>
+                Your blue dot must be inside it when the lecturer scans.
             </p>
-            <div id="distEl" style="font-size:.85em;margin-top:6px;font-weight:600;color:#667eea"></div>
         </div>
         {% endif %}
     </div>
@@ -153,85 +175,165 @@
 <script>
 new QRCode(document.getElementById("qrcode"), {
     text: "STUDENT:{{ student_id }}",
-    width: 220, height: 220,
+    width: 200, height: 200,
     correctLevel: QRCode.CorrectLevel.M
 });
 </script>
 {% endif %}
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const CID     = {{ class_info.id }};
 const MAX_ACC = 50;
+
+// Class geofence centre (null if no geofence)
 {% if class_info.latitude %}
-const CLASS_LAT = {{ class_info.latitude }};
-const CLASS_LNG = {{ class_info.longitude }};
-const CLASS_RAD = {{ class_info.geofence_radius }};
+const CLS_LAT = {{ class_info.latitude }};
+const CLS_LNG = {{ class_info.longitude }};
+const CLS_RAD = {{ class_info.geofence_radius }};
 {% else %}
-const CLASS_LAT = null;
+const CLS_LAT = null;
+const CLS_LNG = null;
+const CLS_RAD = 100;
 {% endif %}
 
-// ── GPS panel — reads from global base.html watcher ──────────
-function updateGPSPanel() {
-    const panel  = document.getElementById('gpsPanel');
-    const icon   = document.getElementById('gpsIcon');
-    const title  = document.getElementById('gpsTitle');
-    const detail = document.getElementById('gpsDetail');
-    const bar    = document.getElementById('accBar');
-    const label  = document.getElementById('accLabel');
-    const distEl = document.getElementById('distEl');
+// ── Leaflet map ───────────────────────────────────────────────
+const initLat = CLS_LAT !== null ? CLS_LAT : 9.082;
+const initLng = CLS_LNG !== null ? CLS_LNG : 8.675;
+const initZoom = CLS_LAT !== null ? 18 : 6;
 
-    const loc = window.getStoredLocation ? window.getStoredLocation() : null;
+const map = L.map('studentMap', { zoomControl: true, attributionControl: false })
+             .setView([initLat, initLng], initZoom);
 
-    if (!loc || isNaN(loc.lat)) {
-        panel.className = 'gps-panel gps-searching';
-        icon.textContent  = '📡';
-        title.textContent = 'Acquiring GPS…';
-        detail.textContent = 'Location is being tracked — allow access if prompted';
-        bar.style.width   = '0%';
-        return;
-    }
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 20
+}).addTo(map);
 
-    const acc = loc.acc;
-    const pct = Math.max(0, Math.min(100, (1 - acc / MAX_ACC) * 100));
-    bar.style.width      = pct + '%';
-    bar.style.background = acc <= MAX_ACC * 0.5 ? '#28a745'
-                         : acc <= MAX_ACC        ? '#ffc107' : '#dc3545';
-    label.textContent = `Accuracy: ±${acc.toFixed(0)}m`;
+L.control.attribution({ prefix: '© OpenStreetMap' }).addTo(map);
 
-    if (acc <= MAX_ACC) {
-        panel.className   = 'gps-panel gps-good';
-        icon.textContent  = '✅';
-        title.textContent = 'Location ready';
-        detail.textContent = `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`;
+// Classroom geofence circle (green)
+let classCircle = null;
+if (CLS_LAT !== null) {
+    classCircle = L.circle([CLS_LAT, CLS_LNG], {
+        radius:      CLS_RAD,
+        color:       '#28a745',
+        fillColor:   '#28a745',
+        fillOpacity: 0.12,
+        weight:      3,
+        dashArray:   '8 4'
+    }).addTo(map);
+
+    L.marker([CLS_LAT, CLS_LNG], {
+        icon: L.divIcon({
+            html: `<div style="
+                background:#28a745;color:#fff;
+                padding:4px 8px;border-radius:6px;
+                font-size:11px;font-weight:bold;
+                white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.2)
+            ">🏫 Classroom</div>`,
+            className: '', iconAnchor: [40, 0]
+        })
+    }).addTo(map);
+}
+
+// Student dot (blue pulsing)
+let studentMarker = null;
+let accuracyCircle = null;
+
+function updateStudentDot(lat, lng, acc) {
+    const pos = [lat, lng];
+
+    if (!studentMarker) {
+        studentMarker = L.circleMarker(pos, {
+            radius: 10, color: '#667eea', fillColor: '#667eea',
+            fillOpacity: 0.9, weight: 3
+        }).addTo(map);
+
+        accuracyCircle = L.circle(pos, {
+            radius: acc, color: '#667eea',
+            fillColor: '#667eea', fillOpacity: 0.08, weight: 1
+        }).addTo(map);
     } else {
-        panel.className   = 'gps-panel gps-weak';
-        icon.textContent  = '⚠️';
-        title.textContent = `Weak signal (±${acc.toFixed(0)}m)`;
-        detail.textContent = 'Move near a window or go outside briefly for better signal';
+        studentMarker.setLatLng(pos);
+        accuracyCircle.setLatLng(pos).setRadius(acc);
     }
 
-    // Show distance to class centre
-    if (CLASS_LAT !== null && distEl && !isNaN(loc.lat)) {
-        const dist = haversine(loc.lat, loc.lng, CLASS_LAT, CLASS_LNG);
-        const inside = dist <= CLASS_RAD;
-        distEl.textContent = inside
-            ? `✅ You are ${dist.toFixed(0)}m from class centre (inside)`
-            : `⛔ You are ${dist.toFixed(0)}m away — move within ${CLASS_RAD}m`;
-        distEl.style.color = inside ? '#28a745' : '#dc3545';
+    // If no class geofence, centre map on student
+    if (CLS_LAT === null) {
+        map.setView(pos, 17);
     }
 }
 
+// Haversine (client side for distance display)
 function haversine(lat1, lon1, lat2, lon2) {
     const R = 6371000;
-    const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
+    const p1 = lat1*Math.PI/180, p2 = lat2*Math.PI/180;
     const dp = (lat2-lat1)*Math.PI/180, dl = (lon2-lon1)*Math.PI/180;
     const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-setInterval(updateGPSPanel, 1500);
-updateGPSPanel();
+// ── GPS badge updater — reads from global base.html watcher ───
+function updateGPSUI(loc) {
+    const badge   = document.getElementById('gpsBadge');
+    const dot     = document.getElementById('gpsDot');
+    const title   = document.getElementById('gpsTitle');
+    const detail  = document.getElementById('gpsDetail');
+    const distLbl = document.getElementById('distLabel');
+    const distBar = document.getElementById('distBar');
+    const distSt  = document.getElementById('distStatus');
 
-// ── Poll attendance status ────────────────────────────────────
+    if (!loc || isNaN(loc.lat)) {
+        badge.className = 'gps-badge gps-searching';
+        dot.style.background = '#667eea';
+        title.textContent  = 'Acquiring GPS signal…';
+        detail.textContent = 'Allow location when prompted by browser';
+        return;
+    }
+
+    const acc = loc.acc;
+    updateStudentDot(loc.lat, loc.lng, acc);
+
+    if (acc <= MAX_ACC * 0.5) {
+        badge.className = 'gps-badge gps-good';
+        dot.style.background = '#28a745';
+        title.textContent  = `✅ GPS ready  (±${acc.toFixed(0)}m)`;
+        detail.textContent = `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`;
+    } else if (acc <= MAX_ACC) {
+        badge.className = 'gps-badge gps-weak';
+        dot.style.background = '#ffc107';
+        title.textContent  = `⚠️ Weak GPS (±${acc.toFixed(0)}m)`;
+        detail.textContent = 'Move near a window for better signal';
+    } else {
+        badge.className = 'gps-badge gps-weak';
+        dot.style.background = '#fd7e14';
+        title.textContent  = `📡 Poor accuracy (±${acc.toFixed(0)}m)`;
+        detail.textContent = 'Try moving outdoors briefly to improve signal';
+    }
+
+    // Distance bar
+    if (CLS_LAT !== null && distLbl) {
+        const dist   = haversine(loc.lat, loc.lng, CLS_LAT, CLS_LNG);
+        const inside = dist <= CLS_RAD;
+        const pct    = Math.min(100, (dist / CLS_RAD) * 100);
+        distLbl.textContent = `${dist.toFixed(0)}m`;
+        distBar.style.width = pct + '%';
+        distBar.style.background = inside ? '#28a745' : dist <= CLS_RAD * 1.5 ? '#ffc107' : '#dc3545';
+        distSt.innerHTML = inside
+            ? `<span style="color:#28a745;font-weight:600">✅ Inside geofence — attendance will be accepted</span>`
+            : `<span style="color:#dc3545;font-weight:600">⛔ Outside geofence — move within ${CLS_RAD}m of class</span>`;
+    }
+}
+
+// Poll global GPS cache every 2 seconds
+setInterval(() => {
+    const loc = window.getStoredLocation ? window.getStoredLocation() : null;
+    updateGPSUI(loc);
+}, 2000);
+// Run immediately
+updateGPSUI(window.getStoredLocation ? window.getStoredLocation() : null);
+
+// ── Poll attendance status ─────────────────────────────────────
 async function pollStatus() {
     try {
         const d = await (await fetch(`/student/check_qr_status/${CID}`)).json();
@@ -246,7 +348,7 @@ pollStatus();
 function updateScore(s) {
     if (s === null || s === undefined) return;
     const el = document.getElementById('scoreEl');
-    el.className = `score-big ${s >= 80 ? 's-high' : s >= 50 ? 's-mid' : 's-low'}`;
+    el.className  = `score-big ${s >= 80 ? 's-high' : s >= 50 ? 's-mid' : 's-low'}`;
     el.textContent = `${Math.round(s)}/100`;
 }
 function updatePhase(p) { document.getElementById('phaseEl').textContent = p; }
@@ -263,7 +365,7 @@ function updateSteps(d) {
     }
     if (d.geo_violations > 0) {
         const el = document.getElementById('s2msg');
-        if (el) el.innerHTML = `<span style="color:#dc3545">⚠️ ${d.geo_violations} geofence violation(s) recorded</span>`;
+        if (el) el.innerHTML = `<span style="color:#dc3545">⚠️ ${d.geo_violations} geofence violation(s)</span>`;
     }
 }
 
@@ -279,7 +381,7 @@ async function doFace() {
             stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
             vid.srcObject = stream; vid.style.display = 'block';
             btn.textContent = '📸 Capture & Verify';
-        } catch(e) { msg.innerHTML = '<span style="color:red">❌ Camera access denied</span>'; }
+        } catch(e) { msg.innerHTML = '<span style="color:red">❌ Camera denied</span>'; }
         return;
     }
     const snap = document.getElementById('snapCanvas');
@@ -295,7 +397,8 @@ async function doFace() {
             if (d.status === 'success') {
                 msg.innerHTML = '<span style="color:#28a745">✅ Face verified!</span>';
                 document.getElementById('s3').className = 'step-card done';
-                stream.getTracks().forEach(t => t.stop()); stream = null; vid.style.display = 'none';
+                stream.getTracks().forEach(t => t.stop()); stream = null;
+                vid.style.display = 'none';
             } else {
                 msg.innerHTML = `<span style="color:red">❌ ${d.message}</span>`;
                 btn.textContent = '📸 Try Again'; btn.disabled = false;

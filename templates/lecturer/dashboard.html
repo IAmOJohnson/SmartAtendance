@@ -3,17 +3,66 @@
 {% block subtitle %}Welcome, {{ name }}{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
+.active-card {
+    background:linear-gradient(135deg,#667eea,#764ba2);
+    color:#fff; border-radius:12px; padding:22px; margin-bottom:20px;
+}
+
+/* Map container */
+#geoMap {
+    height:320px; border-radius:10px; margin:14px 0;
+    border:2px solid #667eea; z-index:1;
+}
+
+/* Search box over map */
+.map-search-wrap { position:relative; margin-bottom:8px; }
+#nominatimInput {
+    width:100%; padding:10px 40px 10px 14px;
+    border:2px solid #667eea; border-radius:8px;
+    font-size:.9em; box-sizing:border-box;
+}
+#nominatimInput:focus { outline:none; box-shadow:0 0 0 3px rgba(102,126,234,.2); }
+#searchBtn {
+    position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    background:#667eea; color:#fff; border:none; border-radius:6px;
+    padding:5px 10px; cursor:pointer; font-size:.85em;
+}
+#searchResults {
+    background:#fff; border:1px solid #ddd; border-radius:8px;
+    max-height:160px; overflow-y:auto;
+    box-shadow:0 4px 12px rgba(0,0,0,.1);
+    display:none; position:absolute; width:100%; z-index:9999;
+}
+.search-item {
+    padding:10px 14px; cursor:pointer; font-size:.85em;
+    border-bottom:1px solid #f0f0f0; line-height:1.4;
+}
+.search-item:hover { background:#f0f4ff; }
+.search-item:last-child { border-bottom:none; }
+
 .geo-box {
     background:#f0f4ff; border:2px dashed #667eea;
     border-radius:10px; padding:16px; margin-top:14px;
 }
-.geo-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
-@media(max-width:600px){ .geo-grid { grid-template-columns:1fr; } }
-#geoStatus { font-size:.82em; color:#667eea; min-height:18px; margin-top:6px; }
-.active-card {
-    background:linear-gradient(135deg,#667eea,#764ba2);
-    color:#fff; border-radius:12px; padding:22px; margin-bottom:20px;
+.coord-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
+@media(max-width:600px){ .coord-grid { grid-template-columns:1fr; } }
+.coord-grid input {
+    padding:8px; border:2px solid #ddd; border-radius:6px;
+    font-size:.88em; width:100%; box-sizing:border-box;
+}
+.coord-grid input:focus { outline:none; border-color:#667eea; }
+.coord-grid label { font-size:.78em; font-weight:600; color:#555; display:block; margin-bottom:3px; }
+#mapStatus { font-size:.82em; margin-top:8px; min-height:18px; color:#667eea; }
+
+/* Radius slider */
+.radius-wrap { margin-top:12px; }
+.radius-wrap label { font-size:.82em; font-weight:600; color:#555; }
+#radiusSlider { width:100%; margin:6px 0; accent-color:#667eea; }
+#radiusDisplay {
+    display:inline-block; background:#667eea; color:#fff;
+    padding:2px 10px; border-radius:10px; font-size:.82em; font-weight:600;
 }
 </style>
 {% endblock %}
@@ -34,24 +83,22 @@
         Duration: {{ active_class.duration_minutes }} min
     </p>
     {% if active_class.latitude %}
-    <p style="font-size:.82em;opacity:.8">
-        📍 Geofence: {{ "%.4f"|format(active_class.latitude) }},
-        {{ "%.4f"|format(active_class.longitude) }}
-        ({{ active_class.geofence_radius|int }}m radius)
+    <p style="font-size:.82em;opacity:.85;margin-top:4px">
+        📍 Geofence active — {{ active_class.geofence_radius|int }}m radius
     </p>
     {% else %}
-    <p style="font-size:.82em;opacity:.8">📍 Geofence: not configured</p>
+    <p style="font-size:.82em;opacity:.7;margin-top:4px">📍 No geofence configured</p>
     {% endif %}
     <a href="/lecturer/scan" class="btn btn-success" style="margin-top:10px">📱 Open Scanner</a>
 </div>
 {% else %}
 <div class="card" style="background:#f8f9fa;text-align:center;padding:30px;margin-bottom:20px">
     <h3 style="color:#aaa">No Active Session</h3>
-    <p style="color:#999;margin-top:6px">Create a class below to start attendance.</p>
+    <p style="color:#999;margin-top:6px">Create a class below to begin attendance.</p>
 </div>
 {% endif %}
 
-<!-- Create New Class -->
+<!-- Create Class -->
 <div class="card">
     <h3>➕ Create New Class Session</h3>
     <form method="POST" action="/lecturer/create_class">
@@ -82,43 +129,65 @@
 
         <div class="form-group">
             <label>Verification Method</label>
-            <select name="verification_method" required>
+            <select name="verification_method">
                 <option value="QR">🔵 QR Code Only</option>
                 <option value="QR_FACE">🟢 QR + Face Recognition</option>
                 <option value="QR_FINGERPRINT" disabled>🔴 QR + Fingerprint (coming soon)</option>
             </select>
         </div>
 
-        <!-- Geofencing -->
+        <!-- Geofence Setup -->
         <div class="geo-box">
-            <strong>📍 Geofencing</strong>
-            <span style="font-size:.8em;color:#888;font-weight:normal"> (optional but recommended)</span>
-            <p style="font-size:.82em;color:#666;margin:6px 0">
-                Set your classroom location so students must be physically present to mark attendance.
-            </p>
-            <button type="button" class="btn" onclick="getLocation()" style="margin-bottom:8px">
-                🎯 Use My Current Location
-            </button>
-            <div id="geoStatus"></div>
-            <div class="geo-grid" style="margin-top:10px">
-                <div class="form-group" style="margin:0">
-                    <label style="font-size:.82em">Latitude</label>
-                    <input type="number" name="latitude" id="latInput"
-                           step="any" placeholder="e.g. 6.5244">
+            <strong>📍 Classroom Geofence</strong>
+            <span style="font-size:.8em;color:#777;font-weight:normal"> — set location on the map</span>
+
+            <!-- Address search -->
+            <div class="map-search-wrap" style="margin-top:12px; position:relative">
+                <input type="text" id="nominatimInput"
+                       placeholder="Search address or building name (e.g. University of Lagos)…"
+                       autocomplete="off">
+                <button type="button" id="searchBtn" onclick="searchAddress()">🔍</button>
+                <div id="searchResults"></div>
+            </div>
+
+            <!-- Leaflet Map -->
+            <div id="geoMap"></div>
+
+            <div id="mapStatus">
+                📌 Click the map or search an address to set the geofence centre.
+                You can also drag the marker.
+            </div>
+
+            <!-- Radius slider -->
+            <div class="radius-wrap">
+                <label>
+                    Geofence Radius: <span id="radiusDisplay">50m</span>
+                </label>
+                <input type="range" id="radiusSlider" min="20" max="500" value="50"
+                       oninput="updateRadius(this.value)">
+                <p style="font-size:.75em;color:#888;margin-top:2px">
+                    Recommended: 50–100m for indoor classrooms, 150–200m for large halls.
+                </p>
+            </div>
+
+            <!-- Hidden inputs sent to server -->
+            <div class="coord-grid" style="margin-top:12px">
+                <div>
+                    <label>Latitude</label>
+                    <input type="number" name="latitude" id="latInput" step="any" placeholder="Set via map">
                 </div>
-                <div class="form-group" style="margin:0">
-                    <label style="font-size:.82em">Longitude</label>
-                    <input type="number" name="longitude" id="lngInput"
-                           step="any" placeholder="e.g. 3.3792">
+                <div>
+                    <label>Longitude</label>
+                    <input type="number" name="longitude" id="lngInput" step="any" placeholder="Set via map">
                 </div>
-                <div class="form-group" style="margin:0">
-                    <label style="font-size:.82em">Radius (metres)</label>
-                    <input type="number" name="geofence_radius" id="radiusInput"
-                           value="100" min="20" max="1000">
+                <div>
+                    <label>Radius (m)</label>
+                    <input type="number" name="geofence_radius" id="radiusInput" value="50" min="20" max="500" readonly
+                           style="background:#f5f5f5">
                 </div>
             </div>
-            <p style="font-size:.78em;color:#888;margin-top:6px">
-                💡 Leave blank to disable geofencing.
+            <p style="font-size:.75em;color:#888;margin-top:8px">
+                💡 Leave the map blank to disable geofencing (any location accepted).
             </p>
         </div>
 
@@ -141,26 +210,154 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-function getLocation() {
-    const st = document.getElementById('geoStatus');
-    st.textContent = '⏳ Getting location...';
-    if (!navigator.geolocation) {
-        st.textContent = '❌ Geolocation not supported'; return;
-    }
-    navigator.geolocation.getCurrentPosition(
-        pos => {
-            document.getElementById('latInput').value = pos.coords.latitude.toFixed(6);
-            document.getElementById('lngInput').value = pos.coords.longitude.toFixed(6);
-            st.innerHTML = `✅ Location set: <strong>${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}</strong> (±${Math.round(pos.coords.accuracy)}m)`;
-            st.style.color = '#28a745';
-        },
-        err => {
-            st.textContent = '❌ ' + err.message;
-            st.style.color = '#dc3545';
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-    );
+// ── Map setup ─────────────────────────────────────────────────
+// Default: centre of Nigeria — zooms to user location automatically
+const DEFAULT_LAT = 9.082, DEFAULT_LNG = 8.675, DEFAULT_ZOOM = 6;
+
+const map = L.map('geoMap').setView([DEFAULT_LAT, DEFAULT_LNG], DEFAULT_ZOOM);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+    maxZoom: 20
+}).addTo(map);
+
+let marker  = null;
+let circle  = null;
+let radius  = 50;
+
+const latIn  = document.getElementById('latInput');
+const lngIn  = document.getElementById('lngInput');
+const radIn  = document.getElementById('radiusInput');
+const status = document.getElementById('mapStatus');
+
+// Custom marker icon
+const pinIcon = L.divIcon({
+    html: `<div style="
+        width:30px;height:30px;border-radius:50% 50% 50% 0;
+        background:#667eea;border:3px solid #fff;
+        box-shadow:0 2px 8px rgba(0,0,0,.3);
+        transform:rotate(-45deg);
+        "></div>`,
+    iconSize:[30,30], iconAnchor:[15,30], className:''
+});
+
+function placeMarker(lat, lng, label) {
+    if (marker) { marker.remove(); circle.remove(); }
+
+    marker = L.marker([lat, lng], { icon: pinIcon, draggable: true }).addTo(map);
+    circle = L.circle([lat, lng], {
+        radius:      radius,
+        color:       '#667eea',
+        fillColor:   '#667eea',
+        fillOpacity: 0.15,
+        weight:      2,
+        dashArray:   '6 4'
+    }).addTo(map);
+
+    latIn.value = lat.toFixed(6);
+    lngIn.value = lng.toFixed(6);
+
+    status.innerHTML = `✅ <strong>${label || lat.toFixed(5)+', '+lng.toFixed(5)}</strong> — radius ${radius}m`;
+    status.style.color = '#28a745';
+
+    // Drag updates coords + circle
+    marker.on('dragend', e => {
+        const p = e.target.getLatLng();
+        circle.setLatLng(p);
+        latIn.value = p.lat.toFixed(6);
+        lngIn.value = p.lng.toFixed(6);
+        status.innerHTML = `✅ Moved to ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)} — radius ${radius}m`;
+    });
+
+    map.setView([lat, lng], 18);
 }
+
+// Click map to place geofence
+map.on('click', e => placeMarker(e.latlng.lat, e.latlng.lng));
+
+// Radius slider
+function updateRadius(val) {
+    radius = parseInt(val);
+    document.getElementById('radiusDisplay').textContent = radius + 'm';
+    radIn.value = radius;
+    if (circle) {
+        circle.setRadius(radius);
+        status.innerHTML = status.innerHTML.replace(/radius \d+m/, 'radius ' + radius + 'm');
+    }
+}
+
+// ── Nominatim address search ───────────────────────────────────
+const searchInput   = document.getElementById('nominatimInput');
+const resultsBox    = document.getElementById('searchResults');
+let   searchTimeout = null;
+
+searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    const q = searchInput.value.trim();
+    if (q.length < 3) { resultsBox.style.display = 'none'; return; }
+    searchTimeout = setTimeout(() => searchAddress(q), 500);
+});
+
+searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); searchAddress(searchInput.value); }
+});
+
+// Close results on outside click
+document.addEventListener('click', e => {
+    if (!e.target.closest('.map-search-wrap')) resultsBox.style.display = 'none';
+});
+
+async function searchAddress(q) {
+    q = q || searchInput.value.trim();
+    if (!q) return;
+    resultsBox.innerHTML = '<div class="search-item" style="color:#888">Searching…</div>';
+    resultsBox.style.display = 'block';
+
+    try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`;
+        const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+        const data = await res.json();
+
+        if (!data.length) {
+            resultsBox.innerHTML = '<div class="search-item" style="color:#888">No results found</div>';
+            return;
+        }
+
+        resultsBox.innerHTML = data.map(r => `
+            <div class="search-item" onclick="pickResult(${r.lat}, ${r.lon}, '${r.display_name.replace(/'/g,"&#39;")}')">
+                <strong>${r.display_name.split(',')[0]}</strong><br>
+                <span style="color:#888">${r.display_name.split(',').slice(1,4).join(',')}</span>
+            </div>
+        `).join('');
+    } catch(e) {
+        resultsBox.innerHTML = '<div class="search-item" style="color:#dc3545">Search failed — check connection</div>';
+    }
+}
+
+function pickResult(lat, lng, name) {
+    resultsBox.style.display = 'none';
+    searchInput.value = name.split(',')[0];
+    placeMarker(parseFloat(lat), parseFloat(lng), name.split(',')[0]);
+}
+
+// ── Auto-zoom to user's location on page load ─────────────────
+window.addEventListener('load', () => {
+    // Try to use cached GPS from global watcher first
+    setTimeout(() => {
+        const loc = window.getStoredLocation ? window.getStoredLocation() : null;
+        if (loc && !isNaN(loc.lat)) {
+            map.setView([loc.lat, loc.lng], 17);
+            status.innerHTML = '📍 Map centred on your current location. Click to set geofence.';
+        } else {
+            // Fall back to fresh geolocation
+            navigator.geolocation.getCurrentPosition(
+                pos => map.setView([pos.coords.latitude, pos.coords.longitude], 17),
+                () => {} // stay on default
+            );
+        }
+    }, 800);
+});
 </script>
 {% endblock %}
