@@ -10,21 +10,23 @@
 .qr-card {
     background:#fff; border:2px solid #667eea;
     border-radius:16px; padding:24px; text-align:center;
+    margin-bottom:16px;
 }
-.qr-card img, .qr-card canvas { border-radius:10px; max-width:220px; }
+.qr-card img { border-radius:10px; max-width:220px; }
 
-/* GPS status */
-.gps-card { border-radius:12px; padding:16px; margin-bottom:14px; }
-.gps-searching { background:#f0f4ff; border:2px solid #667eea; }
-.gps-good      { background:#d4edda; border:2px solid #28a745; }
-.gps-bad       { background:#f8d7da; border:2px solid #dc3545; }
-.gps-inaccurate{ background:#fff3cd; border:2px solid #ffc107; }
+/* GPS live panel */
+.gps-panel { border-radius:12px; padding:16px; margin-bottom:14px; transition:.4s; }
+.gps-searching  { background:#f0f4ff; border:2px solid #667eea; }
+.gps-good       { background:#d4edda; border:2px solid #28a745; }
+.gps-weak       { background:#fff3cd; border:2px solid #ffc107; }
+.gps-denied     { background:#f8d7da; border:2px solid #dc3545; }
 
-.gps-icon  { font-size:2.5em; }
-.gps-title { font-size:1.1em; font-weight:bold; margin:6px 0; }
+.gps-icon  { font-size:2.2em; }
+.gps-title { font-size:1em; font-weight:bold; margin:6px 0; }
 .gps-detail{ font-size:.82em; color:#555; }
-.accuracy-bar-wrap { background:#e0e0e0; border-radius:6px; height:10px; margin-top:8px; }
-.accuracy-bar      { height:10px; border-radius:6px; transition:width .5s; }
+
+.acc-bar-wrap { background:#e0e0e0; border-radius:6px; height:10px; margin-top:10px; }
+.acc-bar      { height:10px; border-radius:6px; transition:width .5s, background .5s; }
 
 /* Steps */
 .step-card { border:2px solid #e0e0e0; border-radius:12px; padding:16px; margin-bottom:12px; transition:.3s; }
@@ -46,8 +48,7 @@
 
     <!-- LEFT: QR + GPS + Score -->
     <div>
-        <!-- Static QR -->
-        <div class="qr-card" style="margin-bottom:16px">
+        <div class="qr-card">
             <div style="font-size:.75em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">
                 Your QR Code
             </div>
@@ -58,18 +59,22 @@
             {% endif %}
             <p style="color:#555;font-size:.83em;margin-top:12px">
                 Show this to the lecturer's scanner.<br>
-                <strong>Your location is verified automatically.</strong>
+                <strong>Your location is checked automatically.</strong>
             </p>
             <p style="font-size:.78em;color:#888">{{ verification_text }}</p>
         </div>
 
-        <!-- GPS Status Panel -->
-        <div id="gpsCard" class="gps-card gps-searching">
-            <div class="gps-icon" id="gpsIcon">📡</div>
-            <div class="gps-title" id="gpsTitle">Acquiring GPS signal...</div>
-            <div class="gps-detail" id="gpsDetail">Please wait — this may take a few seconds</div>
-            <div class="accuracy-bar-wrap" style="margin-top:10px">
-                <div class="accuracy-bar" id="accBar" style="width:0%;background:#667eea"></div>
+        <!-- Live GPS panel (reads from global watcher) -->
+        <div id="gpsPanel" class="gps-panel gps-searching">
+            <div style="display:flex;align-items:center;gap:12px">
+                <div class="gps-icon" id="gpsIcon">📡</div>
+                <div>
+                    <div class="gps-title" id="gpsTitle">Acquiring GPS…</div>
+                    <div class="gps-detail" id="gpsDetail">Location already being tracked</div>
+                </div>
+            </div>
+            <div class="acc-bar-wrap">
+                <div class="acc-bar" id="accBar" style="width:0%;background:#667eea"></div>
             </div>
             <div style="font-size:.75em;color:#888;margin-top:4px" id="accLabel"></div>
         </div>
@@ -94,7 +99,7 @@
         <div id="s1" class="step-card {% if class_info.status != 'ENTRY' %}done{% else %}active{% endif %}">
             <strong>① Entry Scan</strong>
             <p style="font-size:.84em;color:#666;margin-top:6px">
-                Show your QR to the lecturer's camera within ±10 minutes of class start.
+                Show your QR to the lecturer within ±10 minutes of class start.
                 You must be inside the classroom.
             </p>
             <div id="s1msg"></div>
@@ -103,8 +108,8 @@
         <div id="s2" class="step-card {% if class_info.status == 'MONITORING' %}active{% endif %}">
             <strong>② Stay Present</strong>
             <p style="font-size:.84em;color:#666;margin-top:6px">
-                Stay in class. The lecturer will periodically scan your QR to record presence.
-                You need ≥75% of heartbeats inside the geofence.
+                Remain in class. Lecturer scans periodically to record presence.
+                Need ≥75% of heartbeats inside the geofence.
             </p>
             <div id="s2msg"></div>
         </div>
@@ -128,15 +133,14 @@
             <div id="s4msg"></div>
         </div>
 
-        <!-- Geofence status for student -->
         {% if class_info.latitude %}
         <div class="card" style="background:#f8f9fa">
             <strong>📍 Classroom Geofence</strong>
             <p style="font-size:.82em;color:#666;margin-top:6px">
-                Radius: <strong>{{ class_info.geofence_radius|int }}m</strong><br>
-                Your location is checked on every scan.
+                Radius: <strong>{{ class_info.geofence_radius|int }}m</strong> from class centre.<br>
+                Location is verified on every scan.
             </p>
-            <div id="distEl" style="font-size:.85em;margin-top:6px;color:#667eea"></div>
+            <div id="distEl" style="font-size:.85em;margin-top:6px;font-weight:600;color:#667eea"></div>
         </div>
         {% endif %}
     </div>
@@ -155,69 +159,79 @@ new QRCode(document.getElementById("qrcode"), {
 </script>
 {% endif %}
 <script>
-const CID    = {{ class_info.id }};
-const SID    = {{ student_id }};
-const HAS_GEO = {{ 'true' if class_info.latitude else 'false' }};
-const MAX_ACC = {{ config.GPS_ACCURACY_THRESHOLD }};
-let   lastLat = null, lastLng = null;
+const CID     = {{ class_info.id }};
+const MAX_ACC = 50;
+{% if class_info.latitude %}
+const CLASS_LAT = {{ class_info.latitude }};
+const CLASS_LNG = {{ class_info.longitude }};
+const CLASS_RAD = {{ class_info.geofence_radius }};
+{% else %}
+const CLASS_LAT = null;
+{% endif %}
 
-// ── GPS Watcher ────────────────────────────────────────────
-function startGPS() {
-    const card  = document.getElementById('gpsCard');
-    const icon  = document.getElementById('gpsIcon');
-    const title = document.getElementById('gpsTitle');
-    const detail= document.getElementById('gpsDetail');
-    const bar   = document.getElementById('accBar');
-    const label = document.getElementById('accLabel');
-    const distEl= document.getElementById('distEl');
+// ── GPS panel — reads from global base.html watcher ──────────
+function updateGPSPanel() {
+    const panel  = document.getElementById('gpsPanel');
+    const icon   = document.getElementById('gpsIcon');
+    const title  = document.getElementById('gpsTitle');
+    const detail = document.getElementById('gpsDetail');
+    const bar    = document.getElementById('accBar');
+    const label  = document.getElementById('accLabel');
+    const distEl = document.getElementById('distEl');
 
-    if (!navigator.geolocation) {
-        card.className  = 'gps-card gps-bad';
-        icon.textContent  = '❌';
-        title.textContent = 'GPS not supported';
-        detail.textContent = 'Your browser does not support geolocation.';
+    const loc = window.getStoredLocation ? window.getStoredLocation() : null;
+
+    if (!loc || isNaN(loc.lat)) {
+        panel.className = 'gps-panel gps-searching';
+        icon.textContent  = '📡';
+        title.textContent = 'Acquiring GPS…';
+        detail.textContent = 'Location is being tracked — allow access if prompted';
+        bar.style.width   = '0%';
         return;
     }
 
-    navigator.geolocation.watchPosition(
-        pos => {
-            const acc = pos.coords.accuracy;
-            lastLat   = pos.coords.latitude;
-            lastLng   = pos.coords.longitude;
+    const acc = loc.acc;
+    const pct = Math.max(0, Math.min(100, (1 - acc / MAX_ACC) * 100));
+    bar.style.width      = pct + '%';
+    bar.style.background = acc <= MAX_ACC * 0.5 ? '#28a745'
+                         : acc <= MAX_ACC        ? '#ffc107' : '#dc3545';
+    label.textContent = `Accuracy: ±${acc.toFixed(0)}m`;
 
-            // Accuracy bar: 0m = perfect, MAX_ACC+ = bad
-            const pct  = Math.max(0, Math.min(100, (1 - acc / MAX_ACC) * 100));
-            bar.style.width = pct + '%';
-            bar.style.background = acc <= MAX_ACC * 0.5 ? '#28a745'
-                                 : acc <= MAX_ACC       ? '#ffc107' : '#dc3545';
-            label.textContent = `GPS accuracy: ±${acc.toFixed(0)}m`;
+    if (acc <= MAX_ACC) {
+        panel.className   = 'gps-panel gps-good';
+        icon.textContent  = '✅';
+        title.textContent = 'Location ready';
+        detail.textContent = `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`;
+    } else {
+        panel.className   = 'gps-panel gps-weak';
+        icon.textContent  = '⚠️';
+        title.textContent = `Weak signal (±${acc.toFixed(0)}m)`;
+        detail.textContent = 'Move near a window or go outside briefly for better signal';
+    }
 
-            if (acc <= MAX_ACC) {
-                card.className    = 'gps-card gps-good';
-                icon.textContent  = '✅';
-                title.textContent = 'Location ready';
-                detail.textContent = `${lastLat.toFixed(5)}, ${lastLng.toFixed(5)} · ±${acc.toFixed(0)}m`;
-            } else {
-                card.className    = 'gps-card gps-inaccurate';
-                icon.textContent  = '⚠️';
-                title.textContent = 'Weak GPS signal';
-                detail.textContent = `Accuracy ±${acc.toFixed(0)}m — move to open area or near a window`;
-            }
-        },
-        err => {
-            card.className    = 'gps-card gps-bad';
-            icon.textContent  = '❌';
-            title.textContent = 'Location denied';
-            detail.textContent = HAS_GEO
-                ? 'You MUST enable location to mark attendance for this class.'
-                : 'Location access denied — enable GPS for best results.';
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+    // Show distance to class centre
+    if (CLASS_LAT !== null && distEl && !isNaN(loc.lat)) {
+        const dist = haversine(loc.lat, loc.lng, CLASS_LAT, CLASS_LNG);
+        const inside = dist <= CLASS_RAD;
+        distEl.textContent = inside
+            ? `✅ You are ${dist.toFixed(0)}m from class centre (inside)`
+            : `⛔ You are ${dist.toFixed(0)}m away — move within ${CLASS_RAD}m`;
+        distEl.style.color = inside ? '#28a745' : '#dc3545';
+    }
 }
-startGPS();
 
-// ── Poll status ────────────────────────────────────────────
+function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
+    const dp = (lat2-lat1)*Math.PI/180, dl = (lon2-lon1)*Math.PI/180;
+    const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+setInterval(updateGPSPanel, 1500);
+updateGPSPanel();
+
+// ── Poll attendance status ────────────────────────────────────
 async function pollStatus() {
     try {
         const d = await (await fetch(`/student/check_qr_status/${CID}`)).json();
@@ -231,7 +245,7 @@ pollStatus();
 
 function updateScore(s) {
     if (s === null || s === undefined) return;
-    const el  = document.getElementById('scoreEl');
+    const el = document.getElementById('scoreEl');
     el.className = `score-big ${s >= 80 ? 's-high' : s >= 50 ? 's-mid' : 's-low'}`;
     el.textContent = `${Math.round(s)}/100`;
 }
@@ -240,20 +254,20 @@ function updateSteps(d) {
     if (d.qr_verified) {
         document.getElementById('s1').className = 'step-card done';
         document.getElementById('s1msg').innerHTML = '<span style="color:#28a745">✅ Entry recorded</span>';
-        if (document.getElementById('s2'))
-            document.getElementById('s2').className = 'step-card active';
+        const s2 = document.getElementById('s2');
+        if (s2) s2.className = 'step-card active';
     }
     if (d.exit_marked) {
         document.getElementById('s4').className = 'step-card done';
         document.getElementById('s4msg').innerHTML = '<span style="color:#28a745">✅ Exit recorded</span>';
     }
-    if (!d.geo_ok && d.geo_violations > 0) {
+    if (d.geo_violations > 0) {
         const el = document.getElementById('s2msg');
-        if (el) el.innerHTML = `<span style="color:#dc3545">⚠️ ${d.geo_violations} geofence violation(s)</span>`;
+        if (el) el.innerHTML = `<span style="color:#dc3545">⚠️ ${d.geo_violations} geofence violation(s) recorded</span>`;
     }
 }
 
-// ── Face ───────────────────────────────────────────────────
+// ── Face verification ─────────────────────────────────────────
 {% if class_info.verification_method == 'QR_FACE' %}
 let stream = null;
 async function doFace() {
@@ -265,13 +279,13 @@ async function doFace() {
             stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
             vid.srcObject = stream; vid.style.display = 'block';
             btn.textContent = '📸 Capture & Verify';
-        } catch(e) { msg.innerHTML = '<span style="color:red">❌ Camera denied</span>'; }
+        } catch(e) { msg.innerHTML = '<span style="color:red">❌ Camera access denied</span>'; }
         return;
     }
     const snap = document.getElementById('snapCanvas');
     snap.width = vid.videoWidth; snap.height = vid.videoHeight;
     snap.getContext('2d').drawImage(vid, 0, 0);
-    btn.textContent = '⏳ Verifying...'; btn.disabled = true;
+    btn.textContent = '⏳ Verifying…'; btn.disabled = true;
     snap.toBlob(async blob => {
         const fd = new FormData();
         fd.append('face_image', blob, 'face.jpg');

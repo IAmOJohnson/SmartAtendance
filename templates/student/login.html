@@ -2,17 +2,50 @@
 {% block title %}Student Login{% endblock %}
 {% block subtitle %}Student Portal{% endblock %}
 
+{% block extra_css %}
+<style>
+.loc-prompt {
+    background:linear-gradient(135deg,#667eea,#764ba2);
+    color:#fff; border-radius:12px; padding:20px;
+    text-align:center; margin-bottom:24px;
+}
+.loc-prompt .loc-icon { font-size:2.5em; margin-bottom:8px; }
+.loc-prompt p { font-size:.88em; opacity:.9; margin-top:6px; }
+.loc-status-box {
+    display:flex; align-items:center; gap:10px;
+    background:rgba(255,255,255,.15); border-radius:8px;
+    padding:10px 14px; margin-top:12px; font-size:.85em;
+}
+#loginLocDot  { width:12px; height:12px; border-radius:50%; background:#ffc107; flex-shrink:0; }
+#loginLocText { flex:1; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="nav-links">
     <a href="/" class="btn btn-secondary">← Back to Home</a>
 </div>
 
-<div style="max-width:500px;margin:50px auto;">
-    <div class="card">
-        <div style="text-align:center;margin-bottom:30px">
-            <div style="font-size:5em">👨‍🎓</div>
-            <h2 style="color:#333">Student Login</h2>
+<div style="max-width:480px;margin:30px auto;">
+
+    <!-- Location prompt — shown before the form -->
+    <div class="loc-prompt">
+        <div class="loc-icon">📍</div>
+        <strong>Location Permission Required</strong>
+        <p>This system uses GPS to verify you are physically in class.<br>
+           Please <strong>Allow</strong> location access when your browser asks.</p>
+        <div class="loc-status-box">
+            <div id="loginLocDot"></div>
+            <span id="loginLocText">Requesting your location…</span>
         </div>
+    </div>
+
+    <div class="card">
+        <div style="text-align:center;margin-bottom:24px">
+            <div style="font-size:4em">👨‍🎓</div>
+            <h2 style="color:#333;margin-top:8px">Student Login</h2>
+        </div>
+
         <form method="POST">
             <div class="form-group">
                 <label>Matric Number</label>
@@ -22,9 +55,11 @@
                 <label>Password</label>
                 <input type="password" name="password" placeholder="Enter your password" required>
             </div>
-            <!-- Device binding — auto-generated, hidden -->
+            <!-- Device binding — auto-generated -->
             <input type="hidden" name="device_id" id="devId">
-            <button type="submit" class="btn" style="width:100%">Login</button>
+            <button type="submit" class="btn" style="width:100%;padding:14px;font-size:1.05em">
+                Login
+            </button>
         </form>
     </div>
 </div>
@@ -32,11 +67,40 @@
 
 {% block extra_js %}
 <script>
+// Device ID
 (function(){
     const k = 'sa_dev';
     let id = localStorage.getItem(k);
-    if (!id) { id = 'dev_' + Math.random().toString(36).substr(2,10) + Date.now().toString(36); localStorage.setItem(k, id); }
+    if (!id) { id = 'dev_' + Math.random().toString(36).substr(2,10) + Date.now().toString(36); localStorage.setItem(k,id); }
     document.getElementById('devId').value = id;
 })();
+
+// Update the location status box on this page using the global watcher
+const dot  = document.getElementById('loginLocDot');
+const text = document.getElementById('loginLocText');
+
+function updateLoginGPS() {
+    const loc = window.getStoredLocation ? window.getStoredLocation() : null;
+    if (!loc || isNaN(loc.lat)) {
+        dot.style.background  = '#ffc107';
+        text.textContent = 'Requesting location… (allow when prompted)';
+        return;
+    }
+    if (loc.ok) {
+        dot.style.background  = '#28a745';
+        text.textContent = `✅ Location ready — accuracy ±${loc.acc.toFixed(0)}m`;
+    } else if (loc.acc > 0) {
+        dot.style.background  = '#ffc107';
+        text.textContent = `⚠️ Weak GPS (±${loc.acc.toFixed(0)}m) — move near a window`;
+    } else {
+        dot.style.background  = '#dc3545';
+        text.textContent = '❌ Location denied — tap the 🔴 banner above to fix';
+    }
+}
+
+// Poll every second until we get a reading
+const timer = setInterval(() => { updateLoginGPS(); }, 1000);
+setTimeout(() => clearInterval(timer), 30000); // stop after 30s
+updateLoginGPS();
 </script>
 {% endblock %}

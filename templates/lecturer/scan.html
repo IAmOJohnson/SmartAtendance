@@ -35,7 +35,7 @@
 
 <div class="layout">
 
-    <!-- LEFT: Class info + geofence -->
+    <!-- LEFT -->
     <div>
         <div class="class-card">
             <h3>{{ active_class.course_code }}</h3>
@@ -53,17 +53,14 @@
             <strong>📍 Geofence</strong>
             {% if active_class.latitude %}
             <p style="font-size:.85em;margin-top:8px">
-                <strong>Centre:</strong><br>
-                {{ "%.5f"|format(active_class.latitude) }},
-                {{ "%.5f"|format(active_class.longitude) }}<br>
-                <strong>Radius:</strong> {{ active_class.geofence_radius|int }}m<br>
-                <strong>Accuracy limit:</strong> ±{{ config.GPS_ACCURACY_THRESHOLD }}m
+                Centre: {{ "%.5f"|format(active_class.latitude) }}, {{ "%.5f"|format(active_class.longitude) }}<br>
+                Radius: <strong>{{ active_class.geofence_radius|int }}m</strong>
             </p>
-            <span style="color:#28a745;font-size:.85em;font-weight:bold">✅ Active — location required</span>
+            <div id="scannerGeoStatus" style="font-size:.83em;margin-top:6px;color:#667eea">
+                Checking your GPS…
+            </div>
             {% else %}
-            <p style="color:#856404;font-size:.85em;margin-top:6px">
-                ⚠️ Not configured — any location accepted
-            </p>
+            <p style="color:#856404;font-size:.82em;margin-top:6px">⚠️ No geofence — any location accepted</p>
             {% endif %}
         </div>
 
@@ -86,19 +83,19 @@
         </div>
     </div>
 
-    <!-- MIDDLE: QR Scanner -->
+    <!-- MIDDLE: Scanner -->
     <div>
         <div class="card">
             <h3>📷 QR Scanner</h3>
             <p style="font-size:.83em;color:#666;margin-bottom:10px">
-                Students show their permanent QR code. Location is verified automatically.
+                Students show their QR code. Location is verified automatically on each scan.
             </p>
             <div id="reader"></div>
             <div id="scanResult" style="margin-top:14px;min-height:60px"></div>
         </div>
     </div>
 
-    <!-- RIGHT: Live attendance -->
+    <!-- RIGHT: Live feed -->
     <div>
         <div class="card">
             <h3>👥 Live Feed <span id="cnt" style="font-size:.8em;color:#888">(0)</span></h3>
@@ -117,10 +114,30 @@
 {% block extra_js %}
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 <script>
-const CID    = {{ active_class.id }};
-let   locked = false;
+const CID      = {{ active_class.id }};
+const HAS_GEO  = {{ 'true' if active_class.latitude else 'false' }};
+let   locked   = false;
 
-// QR Scanner — sends location with every scan
+// Update geofence status from cached GPS
+function updateScannerGeoStatus() {
+    const el = document.getElementById('scannerGeoStatus');
+    if (!el) return;
+    const loc = window.getStoredLocation ? window.getStoredLocation() : null;
+    if (!loc || isNaN(loc.lat)) {
+        el.textContent = '📡 Waiting for GPS…';
+        el.style.color = '#ffc107';
+    } else if (loc.ok) {
+        el.textContent = `✅ Your GPS ready (±${loc.acc.toFixed(0)}m)`;
+        el.style.color = '#28a745';
+    } else {
+        el.textContent = `⚠️ Weak GPS ±${loc.acc.toFixed(0)}m — results may be less accurate`;
+        el.style.color = '#856404';
+    }
+}
+setInterval(updateScannerGeoStatus, 2000);
+updateScannerGeoStatus();
+
+// QR Scanner — uses cached location from global watcher
 const scanner = new Html5Qrcode("reader");
 scanner.start(
     { facingMode: "environment" },
@@ -129,25 +146,17 @@ scanner.start(
         if (locked) return;
         locked = true;
 
-        // Get high-accuracy GPS
-        let lat = null, lng = null, acc = null;
-        try {
-            const p = await new Promise((res, rej) =>
-                navigator.geolocation.getCurrentPosition(res, rej, {
-                    enableHighAccuracy: true,
-                    timeout: 5000,
-                    maximumAge: 0        // never use cached position
-                }));
-            lat = p.coords.latitude;
-            lng = p.coords.longitude;
-            acc = p.coords.accuracy;
-        } catch(e) {
-            // If geofence is configured, GPS is required
-            if ({{ 'true' if active_class.latitude else 'false' }}) {
-                showResult({status:'error', message:'📍 Cannot get location — ensure GPS is enabled'});
-                setTimeout(() => locked = false, 2500);
-                return;
-            }
+        // Read from global GPS cache — fresh, no extra request needed
+        const loc = window.getStoredLocation ? window.getStoredLocation() : null;
+        const lat = loc && !isNaN(loc.lat) ? loc.lat : null;
+        const lng = loc && !isNaN(loc.lng) ? loc.lng : null;
+        const acc = loc && !isNaN(loc.acc) ? loc.acc : null;
+
+        // If geofence is active and GPS is unavailable, block the scan
+        if (HAS_GEO && lat === null) {
+            showResult({status:'error', message:'📍 GPS not available — enable location and wait for signal'});
+            setTimeout(() => locked = false, 2500);
+            return;
         }
 
         const fd = new FormData();
@@ -163,7 +172,7 @@ scanner.start(
             const d = await (await fetch('/process_qr', {method:'POST', body:fd})).json();
             showResult(d);
         } catch(e) {
-            showResult({status:'error', message:'Network error'});
+            showResult({status:'error', message:'Network error — check connection'});
         }
         setTimeout(() => locked = false, 2500);
     },
@@ -181,7 +190,7 @@ function showResult(d) {
     document.getElementById('scanResult').innerHTML = h;
 }
 
-// Live feed
+// Live attendance feed
 async function live() {
     try {
         const d = await (await fetch(`/lecturer/live/${CID}`)).json();
