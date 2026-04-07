@@ -294,34 +294,42 @@ function updateGPSUI(loc) {
     const acc = loc.acc;
     updateStudentDot(loc.lat, loc.lng, acc);
 
-    if (acc <= MAX_ACC * 0.5) {
+    // Show GPS status — indoor accuracy of 100-300m is NORMAL and still works
+    // because the backend adds the accuracy as a buffer to the geofence radius
+    if (acc <= 50) {
         badge.className = 'gps-badge gps-good';
         dot.style.background = '#28a745';
-        title.textContent  = `✅ GPS ready  (±${acc.toFixed(0)}m)`;
+        title.textContent  = `✅ Strong GPS (±${acc.toFixed(0)}m)`;
         detail.textContent = `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`;
-    } else if (acc <= MAX_ACC) {
+    } else if (acc <= 200) {
+        badge.className = 'gps-badge gps-good';
+        dot.style.background = '#28a745';
+        title.textContent  = `✅ GPS ready (±${acc.toFixed(0)}m — normal indoors)`;
+        detail.textContent = 'Indoor GPS accuracy is normal — geofence buffer applied automatically';
+    } else if (acc <= 400) {
         badge.className = 'gps-badge gps-weak';
         dot.style.background = '#ffc107';
         title.textContent  = `⚠️ Weak GPS (±${acc.toFixed(0)}m)`;
-        detail.textContent = 'Move near a window for better signal';
+        detail.textContent = 'Still usable — try near a window if scan keeps failing';
     } else {
         badge.className = 'gps-badge gps-weak';
         dot.style.background = '#fd7e14';
-        title.textContent  = `📡 Poor accuracy (±${acc.toFixed(0)}m)`;
-        detail.textContent = 'Try moving outdoors briefly to improve signal';
+        title.textContent  = `📡 Very poor GPS (±${acc.toFixed(0)}m)`;
+        detail.textContent = 'Move near a window or briefly step outside to improve';
     }
 
-    // Distance bar
+    // Distance bar — uses effective radius (configured + 40% of GPS accuracy buffer)
     if (CLS_LAT !== null && distLbl) {
-        const dist   = haversine(loc.lat, loc.lng, CLS_LAT, CLS_LNG);
-        const inside = dist <= CLS_RAD;
-        const pct    = Math.min(100, (dist / CLS_RAD) * 100);
+        const dist            = haversine(loc.lat, loc.lng, CLS_LAT, CLS_LNG);
+        const effectiveRadius = CLS_RAD + acc * 0.4;  // matches server ACCURACY_BUFFER_FACTOR
+        const inside          = dist <= effectiveRadius;
+        const pct             = Math.min(100, (dist / effectiveRadius) * 100);
         distLbl.textContent = `${dist.toFixed(0)}m`;
         distBar.style.width = pct + '%';
-        distBar.style.background = inside ? '#28a745' : dist <= CLS_RAD * 1.5 ? '#ffc107' : '#dc3545';
+        distBar.style.background = inside ? '#28a745' : '#dc3545';
         distSt.innerHTML = inside
             ? `<span style="color:#28a745;font-weight:600">✅ Inside geofence — attendance will be accepted</span>`
-            : `<span style="color:#dc3545;font-weight:600">⛔ Outside geofence — move within ${CLS_RAD}m of class</span>`;
+            : `<span style="color:#dc3545;font-weight:600">⛔ ${dist.toFixed(0)}m away (allowed ${effectiveRadius.toFixed(0)}m incl. GPS buffer) — move closer</span>`;
     }
 }
 

@@ -33,9 +33,18 @@ class Config:
     HEARTBEAT_INTERVAL  = 15
 
     # Geofencing
-    DEFAULT_GEOFENCE_RADIUS  = 50     # metres — tight by default
-    GPS_ACCURACY_THRESHOLD   = 50     # reject GPS readings worse than this (metres)
-    GPS_SPOOF_SPEED_LIMIT    = 10     # m/s — flag as spoofed if moved faster than this
+    # ─────────────────────────────────────────────────────────────────
+    # Indoor GPS on phones routinely reads ±100–300m even when you are
+    # standing in the right spot.  We NEVER hard-reject based on accuracy
+    # alone — instead we use the accuracy reading as a smart buffer added
+    # to the geofence radius so edge-of-building students aren't wrongly
+    # blocked.  Only GPS with accuracy > ACCURACY_HARD_LIMIT (very bad
+    # readings like ±800m+) gets a soft warning, never a hard reject.
+    # ─────────────────────────────────────────────────────────────────
+    DEFAULT_GEOFENCE_RADIUS = 100    # metres
+    ACCURACY_HARD_LIMIT     = 500    # above this: warn but still allow
+    ACCURACY_BUFFER_FACTOR  = 0.4    # add 40 % of accuracy as radius buffer
+    GPS_SPOOF_SPEED_LIMIT   = 50     # m/s — only flag obvious teleportation
 
     # Attendance scoring
     SCORE_ENTRY_POINTS  = 20

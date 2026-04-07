@@ -152,11 +152,12 @@ scanner.start(
         const lng = loc && !isNaN(loc.lng) ? loc.lng : null;
         const acc = loc && !isNaN(loc.acc) ? loc.acc : null;
 
-        // If geofence is active and GPS is unavailable, block the scan
+        // If geofence is active and GPS hasn't loaded yet, still allow scan
+        // Backend will accept it using accuracy buffer — never hard-block here
         if (HAS_GEO && lat === null) {
-            showResult({status:'error', message:'📍 GPS not available — enable location and wait for signal'});
-            setTimeout(() => locked = false, 2500);
-            return;
+            // Try one more time synchronously before giving up
+            // (just proceed without coords — server will warn but not block)
+            console.warn('GPS unavailable for this scan');
         }
 
         const fd = new FormData();

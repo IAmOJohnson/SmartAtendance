@@ -55,21 +55,29 @@ def haversine(lat1, lon1, lat2, lon2):
 def geofence_check(slat, slon, accuracy, clat, clon, radius):
     """
     Returns (ok: bool, reason: str, distance: float)
-    - Rejects if GPS accuracy is worse than GPS_ACCURACY_THRESHOLD
-    - Rejects if student is outside (radius + accuracy buffer)
+
+    Indoor GPS on phones commonly reads +-100-300m even when the person
+    is physically in the right building. Never hard-reject based on
+    accuracy alone. Instead use accuracy as a generous buffer added to
+    the configured geofence radius.
     """
     if clat is None or clon is None:
-        return True, "no geofence", 0.0
-
-    if accuracy is not None and accuracy > Config.GPS_ACCURACY_THRESHOLD:
-        return False, f"GPS too inaccurate (±{accuracy:.0f}m — move to open area)", 0.0
+        return True, "no geofence configured", 0.0
 
     dist = haversine(slat, slon, clat, clon)
-    # Allow accuracy as a buffer so edge-of-fence students aren't wrongly rejected
-    effective_radius = radius + (accuracy or 0) * 0.5
+    acc  = accuracy or 0
+
+    # Effective radius grows with GPS inaccuracy
+    effective_radius = radius + acc * Config.ACCURACY_BUFFER_FACTOR
+
     if dist <= effective_radius:
-        return True, f"{dist:.0f}m from class", dist
-    return False, f"Too far: {dist:.0f}m from class (limit {radius:.0f}m)", dist
+        acc_note = f" (GPS +-{acc:.0f}m)" if acc > 50 else ""
+        return True, f"{dist:.0f}m from class{acc_note}", dist
+
+    return False, (
+        f"You are {dist:.0f}m from the classroom "
+        f"(limit {effective_radius:.0f}m incl. +-{acc:.0f}m GPS buffer)"
+    ), dist
 
 def detect_spoof(slat, slon, prev_lat, prev_lon, elapsed_sec):
     """True if movement speed suggests GPS spoofing."""

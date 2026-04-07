@@ -162,12 +162,14 @@
         saveLoc(lat, lng, acc);
         banner.style.display = 'none';
 
-        if (acc <= MAX_ACC * 0.5) {
+        // Indoor GPS at 100-300m is NORMAL — show green/yellow but never block
+        if (acc <= 100) {
             showPill('pill-good', `✅ GPS ±${acc.toFixed(0)}m`);
-        } else if (acc <= MAX_ACC) {
-            showPill('pill-weak', `⚠️ GPS ±${acc.toFixed(0)}m`);
+        } else if (acc <= 300) {
+            // Normal indoors — show calm yellow, not alarming
+            showPill('pill-weak', `📍 GPS ±${acc.toFixed(0)}m`);
         } else {
-            showPill('pill-weak', `📡 Weak GPS ±${acc.toFixed(0)}m`);
+            showPill('pill-weak', `📡 GPS ±${acc.toFixed(0)}m`);
         }
     }
 
