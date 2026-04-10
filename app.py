@@ -12,7 +12,7 @@ from flask import (Flask, render_template, request, redirect,
 from werkzeug.utils import secure_filename
 
 from config import Config
-from database import get_connection, create_tables, migrate_existing_db
+from database import get_connection, create_tables, migrate_existing_db, migrate_v2
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -137,12 +137,47 @@ def calc_occupancy(ping_count, duration_minutes):
     return min(100.0, ping_count / expected * 100.0)
 
 def calc_score(entry_ok, exit_ok, occupancy, geo_ok):
+    """Session score out of 100."""
     s  = Config.SCORE_ENTRY_POINTS if entry_ok else 0
     s += Config.SCORE_EXIT_POINTS  if exit_ok  else 0
     s += (occupancy / 100.0) * Config.SCORE_OCCUPANCY_MAX
     if not geo_ok:
         s = max(0, s - Config.SCORE_GEO_PENALTY)
     return round(s, 2)
+
+
+def calc_status(entry_time, entry_valid, exit_time, exit_valid,
+                occupancy, geo_ok, score, geo_absent_at=None):
+    """
+    Derive attendance status for a completed session.
+    PRESENT    – on-time entry, valid exit, occupancy >= threshold, geo ok
+    LATE       – attended but at least one condition imperfect
+    ABSENT     – geo-absent triggered, no entry, or score below threshold
+    INCOMPLETE – entry marked but exit not yet recorded
+    """
+    if geo_absent_at:
+        return 'ABSENT'
+    if not entry_time:
+        return 'ABSENT'
+    if not exit_time:
+        return 'INCOMPLETE'
+    if score < Config.ABSENT_SCORE_THRESHOLD:
+        return 'ABSENT'
+    if entry_valid and exit_valid and occupancy >= Config.OCCUPANCY_THRESHOLD and geo_ok:
+        return 'PRESENT'
+    return 'LATE'
+
+
+def calc_weighted_points(status, present_weight=None, late_weight=None):
+    """Points for aggregate/semester calculation."""
+    pw = present_weight if present_weight is not None else Config.DEFAULT_PRESENT_WEIGHT
+    lw = late_weight    if late_weight    is not None else Config.DEFAULT_LATE_WEIGHT
+    return {
+        'PRESENT':    pw,
+        'LATE':       lw,
+        'ABSENT':     Config.DEFAULT_ABSENT_WEIGHT,
+        'INCOMPLETE': Config.DEFAULT_ABSENT_WEIGHT,
+    }.get(status, 0.0)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -597,10 +632,60 @@ def adjust_duration(class_id):
 def force_phase(class_id):
     if 'lecturer_id' not in session: return jsonify({"error":"Unauthorized"}), 401
     phase = request.form.get("phase","")
-    if phase not in ('ENTRY','MONITORING','EXIT','CLOSED'): return jsonify({"error":"Invalid phase"}), 400
+    if phase not in ('ENTRY','MONITORING','EXIT','CLOSED'):
+        return jsonify({"error":"Invalid phase"}), 400
     conn = get_connection()
-    conn.execute("UPDATE class_sessions SET status=? WHERE id=? AND lecturer_id=?",(phase,class_id,session['lecturer_id']))
-    conn.commit(); conn.close(); return jsonify({"status":"ok"})
+    # Update the session phase
+    conn.execute(
+        "UPDATE class_sessions SET status=? WHERE id=? AND lecturer_id=?",
+        (phase, class_id, session['lecturer_id']))
+    conn.commit()
+
+    # When forcing to EXIT or CLOSED, finalise any students who have entry
+    # but haven't scanned exit yet — recalculate their status properly
+    if phase in ('EXIT','CLOSED'):
+        sess = conn.execute(
+            "SELECT start_time, duration_minutes FROM class_sessions WHERE id=?",
+            (class_id,)).fetchone()
+        if sess:
+            now_str  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            recs = conn.execute("""
+                SELECT a.id, a.entry_valid, a.exit_time, a.exit_valid,
+                       a.occupancy_percentage, a.geofence_ok,
+                       a.attendance_score, a.geo_absent_at,
+                       c.present_weight, c.late_weight
+                FROM attendance a
+                JOIN class_sessions cs ON cs.id = a.class_session_id
+                JOIN courses c ON c.id = cs.course_id
+                WHERE a.class_session_id=?""", (class_id,)).fetchall()
+            for r in recs:
+                # Count heartbeat pings
+                pings = conn.execute(
+                    "SELECT COUNT(*) as cnt FROM attendance_logs "
+                    "WHERE attendance_id=? AND log_type='HEARTBEAT'",
+                    (r['id'],)).fetchone()['cnt']
+                occ   = calc_occupancy(pings, sess['duration_minutes'])
+                xv    = int(is_exit_valid(now_str, sess['start_time'], sess['duration_minutes']))
+                score = calc_score(bool(r['entry_valid']), bool(xv), occ, bool(r['geofence_ok']))
+                status = calc_status(
+                    True, bool(r['entry_valid']),
+                    r['exit_time'] or now_str, bool(xv),
+                    occ, bool(r['geofence_ok']), score, r['geo_absent_at'])
+                wp = calc_weighted_points(status, r['present_weight'], r['late_weight'])
+                # Only auto-set exit if student hasn't exited yet
+                if not r['exit_time']:
+                    conn.execute("""UPDATE attendance
+                        SET exit_time=?, exit_valid=?, occupancy_percentage=?,
+                            attendance_score=?, attendance_status=?, weighted_points=?
+                        WHERE id=?""",
+                        (now_str, xv, occ, score, status, wp, r['id']))
+                else:
+                    conn.execute("""UPDATE attendance
+                        SET attendance_status=?, weighted_points=?
+                        WHERE id=?""", (status, wp, r['id']))
+            conn.commit()
+    conn.close()
+    return jsonify({"status":"ok","phase":phase})
 
 @app.route("/class/<int:class_id>/export/csv")
 def export_csv(class_id):
@@ -893,22 +978,40 @@ def process_qr():
         occ   = calc_occupancy(pings, sess['duration_minutes'])
         occ_v = int(occ >= Config.OCCUPANCY_THRESHOLD)
         score = calc_score(bool(rec['entry_valid']), xv, occ, bool(rec['geofence_ok']))
+        # Get course weights for this session
+        weights = conn.execute("""
+            SELECT c.present_weight, c.late_weight FROM courses c
+            JOIN class_sessions cs ON cs.id=?
+            WHERE c.id = cs.course_id""", (class_id,)).fetchone()
+        pw = weights['present_weight'] if weights else Config.DEFAULT_PRESENT_WEIGHT
+        lw = weights['late_weight']    if weights else Config.DEFAULT_LATE_WEIGHT
+
+        att_status = calc_status(
+            True, bool(rec['entry_valid']), now_str, xv,
+            occ, bool(rec['geofence_ok']), score, rec.get('geo_absent_at'))
+        wp = calc_weighted_points(att_status, pw, lw)
+
         conn.execute("""UPDATE attendance SET exit_time=?,exit_valid=?,
-            occupancy_percentage=?,occupancy_valid=?,attendance_score=? WHERE id=?""",
-            (now_str,int(xv),occ,occ_v,score,rec['id']))
+            occupancy_percentage=?,occupancy_valid=?,attendance_score=?,
+            attendance_status=?,weighted_points=?
+            WHERE id=?""",
+            (now_str,int(xv),occ,occ_v,score,att_status,wp,rec['id']))
         conn.execute("""INSERT INTO attendance_logs
             (attendance_id,logged_at,latitude,longitude,geofence_ok,log_type)
             VALUES (?,?,?,?,?,'EXIT')""",(rec['id'],now_str,slat,slng,int(geo_ok)))
         conn.commit(); conn.close()
-        if score >= 80:
+
+        status_emoji = {'PRESENT':'✅','LATE':'🟡','ABSENT':'❌'}.get(att_status,'⚠️')
+        if att_status == 'PRESENT':
             return jsonify({"status":"ok","phase":"EXIT",
-                            "message":f"✅ COMPLETE! Score: {score:.0f}/100","student":info})
+                            "message":f"✅ COMPLETE — {att_status}! Score: {score:.0f}/100",
+                            "student":info})
         reasons = []
         if not rec['entry_valid']:           reasons.append("late entry")
         if not xv:                           reasons.append("early exit")
         if occ < Config.OCCUPANCY_THRESHOLD: reasons.append(f"low occupancy ({occ:.0f}%)")
         return jsonify({"status":"warning","phase":"EXIT",
-                        "message":f"⚠️ Exit marked. Score:{score:.0f}/100 ({', '.join(reasons)})",
+                        "message":f"{status_emoji} {att_status} — Score:{score:.0f}/100 ({', '.join(reasons)})",
                         "student":info})
 
     conn.close()
@@ -949,9 +1052,192 @@ def attendance_report():
 # ═══════════════════════════════════════════════════════════
 #  RUN
 # ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════
+#  GEO-ABSENCE AUTO-TRIGGER
+#  Called by student browser every minute when in MONITORING
+#  If student is outside geofence, server logs it.
+#  If they've been outside > GEO_ABSENCE_MINUTES, mark ABSENT.
+# ═══════════════════════════════════════════════════════════
+@app.route("/student/geo_ping", methods=["POST"])
+def student_geo_ping():
+    if 'student_id' not in session:
+        return jsonify({"error":"Not logged in"}), 401
+    sid      = session['student_id']
+    class_id = request.form.get("class_id", type=int)
+    slat     = request.form.get("latitude",  type=float)
+    slng     = request.form.get("longitude", type=float)
+    accuracy = request.form.get("accuracy",  type=float)
+    if not class_id or slat is None:
+        return jsonify({"ok": True})  # no coords — skip silently
+
+    conn = get_connection()
+    sess = conn.execute(
+        "SELECT latitude,longitude,geofence_radius,status FROM class_sessions WHERE id=?",
+        (class_id,)).fetchone()
+    if not sess or sess['status'] not in ('MONITORING','EXIT'):
+        conn.close(); return jsonify({"ok": True})
+
+    rec = conn.execute(
+        "SELECT id, geo_absent_at, geofence_ok, geofence_violations "
+        "FROM attendance WHERE student_id=? AND class_session_id=?",
+        (sid, class_id)).fetchone()
+    if not rec:
+        conn.close(); return jsonify({"ok": True})
+
+    geo_ok, _, _ = geofence_check(slat, slng, accuracy,
+                                  sess['latitude'], sess['longitude'],
+                                  sess['geofence_radius'])
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    if not geo_ok:
+        if not rec['geo_absent_at']:
+            # First time outside — record timestamp
+            conn.execute(
+                "UPDATE attendance SET geo_absent_at=?, geofence_ok=0, "
+                "geofence_violations=geofence_violations+1 WHERE id=?",
+                (now_str, rec['id']))
+        else:
+            # Already flagged — check how long they've been outside
+            absent_since = datetime.strptime(rec['geo_absent_at'], "%Y-%m-%d %H:%M:%S")
+            minutes_out  = (datetime.now() - absent_since).total_seconds() / 60
+            conn.execute(
+                "UPDATE attendance SET geofence_violations=geofence_violations+1 WHERE id=?",
+                (rec['id'],))
+            if minutes_out >= Config.GEO_ABSENCE_MINUTES:
+                # Auto-mark ABSENT
+                conn.execute(
+                    "UPDATE attendance SET attendance_status='ABSENT', "
+                    "weighted_points=0, geofence_ok=0 WHERE id=?",
+                    (rec['id'],))
+                conn.commit(); conn.close()
+                return jsonify({
+                    "ok": False,
+                    "auto_absent": True,
+                    "message": f"⛔ You were outside the classroom for {minutes_out:.0f} minutes. Marked ABSENT."
+                })
+    else:
+        # Back inside — clear geo_absent_at if they return
+        if rec['geo_absent_at']:
+            conn.execute(
+                "UPDATE attendance SET geo_absent_at=NULL WHERE id=?",
+                (rec['id'],))
+
+    conn.commit(); conn.close()
+    return jsonify({"ok": True, "geo_ok": geo_ok})
+
+
+# ═══════════════════════════════════════════════════════════
+#  AGGREGATE / SEMESTER REPORT
+# ═══════════════════════════════════════════════════════════
+@app.route("/aggregate_report")
+def aggregate_report():
+    dept_f   = request.args.get("department")
+    course_f = request.args.get("course")
+    student_f = request.args.get("student")
+    conn     = get_connection()
+
+    # Build per-student per-course aggregate
+    q = """
+        SELECT
+            s.id as student_id, s.name, s.matric,
+            c.id as course_id, c.course_code, c.course_title,
+            c.exam_threshold, c.present_weight, c.late_weight,
+            d.name as dept_name,
+            COUNT(a.id)                                    as total_sessions,
+            SUM(CASE WHEN a.attendance_status='PRESENT'    THEN 1 ELSE 0 END) as total_present,
+            SUM(CASE WHEN a.attendance_status='LATE'       THEN 1 ELSE 0 END) as total_late,
+            SUM(CASE WHEN a.attendance_status='ABSENT'     THEN 1 ELSE 0 END) as total_absent,
+            SUM(CASE WHEN a.attendance_status='INCOMPLETE' THEN 1 ELSE 0 END) as total_incomplete,
+            SUM(a.weighted_points)                         as total_points,
+            AVG(a.attendance_score)                        as avg_score
+        FROM attendance a
+        JOIN students s        ON s.id  = a.student_id
+        JOIN class_sessions cs ON cs.id = a.class_session_id
+        JOIN courses c         ON c.id  = cs.course_id
+        JOIN departments d     ON d.id  = s.department_id
+        WHERE a.attendance_status != 'INCOMPLETE'
+    """
+    params = []
+    if dept_f:    q += " AND d.id=?";   params.append(dept_f)
+    if course_f:  q += " AND c.id=?";   params.append(course_f)
+    if student_f: q += " AND s.id=?";   params.append(student_f)
+    q += " GROUP BY s.id, c.id ORDER BY s.name, c.course_code"
+
+    rows = conn.execute(q, params).fetchall()
+    departments = conn.execute("SELECT id,name FROM departments ORDER BY name").fetchall()
+    courses     = conn.execute("SELECT id,course_code,course_title FROM courses ORDER BY course_code").fetchall()
+    students    = conn.execute("SELECT id,name,matric FROM students ORDER BY name").fetchall()
+    conn.close()
+
+    # Compute aggregate percentage for each row
+    aggregates = []
+    for r in rows:
+        total    = r['total_sessions']
+        if total == 0:
+            continue
+        pw = r['present_weight'] or Config.DEFAULT_PRESENT_WEIGHT
+        lw = r['late_weight']    or Config.DEFAULT_LATE_WEIGHT
+        # Max possible points = total_sessions * present_weight
+        max_pts  = total * pw
+        got_pts  = r['total_points'] or 0
+        pct      = (got_pts / max_pts * 100) if max_pts > 0 else 0
+        threshold = r['exam_threshold'] or Config.DEFAULT_EXAM_THRESHOLD
+        can_sit  = pct >= threshold
+        aggregates.append({
+            "student_id":   r['student_id'],
+            "name":         r['name'],
+            "matric":       r['matric'],
+            "course_code":  r['course_code'],
+            "course_title": r['course_title'],
+            "dept_name":    r['dept_name'],
+            "total":        total,
+            "present":      r['total_present'],
+            "late":         r['total_late'],
+            "absent":       r['total_absent'],
+            "points":       round(got_pts, 2),
+            "max_points":   round(max_pts, 2),
+            "pct":          round(pct, 1),
+            "threshold":    threshold,
+            "can_sit":      can_sit,
+            "avg_score":    round(r['avg_score'] or 0, 1),
+            "present_weight": pw,
+            "late_weight":    lw,
+        })
+
+    return render_template("aggregate_report.html",
+                           aggregates=aggregates,
+                           departments=departments,
+                           courses=courses,
+                           students=students,
+                           selected_dept=dept_f,
+                           selected_course=course_f,
+                           selected_student=student_f)
+
+
+# ── Course settings (exam threshold, weights) ─────────────────
+@app.route("/admin/courses/<int:cid>/settings", methods=["GET","POST"])
+def admin_course_settings(cid):
+    conn = get_connection()
+    if request.method == "POST":
+        threshold = request.form.get("exam_threshold", type=float) or 75.0
+        pw        = request.form.get("present_weight", type=float) or 1.0
+        lw        = request.form.get("late_weight",    type=float) or 0.5
+        conn.execute("""UPDATE courses SET exam_threshold=?,present_weight=?,late_weight=?
+            WHERE id=?""", (threshold, pw, lw, cid))
+        conn.commit(); conn.close()
+        flash("✅ Course settings updated!", "success")
+        return redirect(url_for("admin_courses"))
+    course = conn.execute("SELECT * FROM courses WHERE id=?", (cid,)).fetchone()
+    conn.close()
+    if not course:
+        flash("❌ Course not found","error"); return redirect(url_for("admin_courses"))
+    return render_template("admin/course_settings.html", course=course)
+
+
 if __name__ == "__main__":
     os.makedirs(Config.QR_CODE_DIR,     exist_ok=True)
     os.makedirs(Config.FACE_IMAGES_DIR, exist_ok=True)
     create_tables()
     migrate_existing_db()
+    migrate_v2()
     app.run(debug=True, host='0.0.0.0', port=5000)

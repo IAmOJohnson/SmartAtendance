@@ -353,6 +353,37 @@ async function pollStatus() {
 setInterval(pollStatus, 8000);
 pollStatus();
 
+// ── Geo ping every 60s during MONITORING to detect extended absence ───
+async function sendGeoPing() {
+    const loc = window.getStoredLocation ? window.getStoredLocation() : null;
+    if (!loc || isNaN(loc.lat)) return;
+
+    // Only ping during MONITORING phase
+    const phase = document.getElementById('phaseEl').textContent.trim();
+    if (phase !== 'MONITORING') return;
+
+    const fd = new FormData();
+    fd.append('class_id',  CID);
+    fd.append('latitude',  loc.lat);
+    fd.append('longitude', loc.lng);
+    fd.append('accuracy',  loc.acc);
+    try {
+        const d = await (await fetch('/student/geo_ping', {method:'POST', body:fd})).json();
+        if (d.auto_absent) {
+            // Show auto-absent warning
+            const warn = document.createElement('div');
+            warn.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);' +
+                'background:#dc3545;color:#fff;padding:16px 24px;border-radius:10px;' +
+                'z-index:9999;font-weight:bold;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.3)';
+            warn.textContent = d.message;
+            document.body.appendChild(warn);
+            setTimeout(() => warn.remove(), 8000);
+            pollStatus(); // refresh score
+        }
+    } catch(e) {}
+}
+setInterval(sendGeoPing, 60000); // every 60 seconds
+
 function updateScore(s) {
     if (s === null || s === undefined) return;
     const el = document.getElementById('scoreEl');

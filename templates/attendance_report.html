@@ -1,51 +1,93 @@
 {% extends "base.html" %}
-
 {% block title %}Attendance Report{% endblock %}
-{% block subtitle %}All Attendance Records{% endblock %}
+{% block subtitle %}Session Attendance Records{% endblock %}
+
+{% block extra_css %}
+<style>
+.status-badge {
+    display:inline-block; padding:4px 12px; border-radius:20px;
+    font-weight:bold; font-size:.82em; white-space:nowrap;
+}
+.badge-present    { background:#d4edda; color:#155724; }
+.badge-late       { background:#fff3cd; color:#856404; }
+.badge-absent     { background:#f8d7da; color:#721c24; }
+.badge-incomplete { background:#e2e3e5; color:#383d41; }
+.stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+@media(max-width:600px){ .stat-grid { grid-template-columns:repeat(2,1fr); } }
+.stat-box { background:#f8f9fa; border-radius:10px; padding:14px; text-align:center; }
+.stat-num  { font-size:2em; font-weight:bold; }
+.reasons   { font-size:.76em; color:#888; margin-top:3px; }
+.entry-req { font-size:.78em; color:#856404; background:#fff3cd; padding:2px 8px; border-radius:6px; }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="nav-links">
     <a href="/" class="btn btn-secondary">🏠 Home</a>
     {% if session.get('lecturer_id') %}
-        <a href="/lecturer/dashboard" class="btn btn-secondary">← Back to Dashboard</a>
+        <a href="/lecturer/dashboard" class="btn btn-secondary">← Dashboard</a>
     {% elif session.get('student_id') %}
-        <a href="/student/dashboard" class="btn btn-secondary">← Back to Dashboard</a>
+        <a href="/student/dashboard" class="btn btn-secondary">← Dashboard</a>
     {% else %}
-        <a href="/admin" class="btn btn-secondary">← Back to Admin</a>
+        <a href="/admin" class="btn btn-secondary">← Admin</a>
     {% endif %}
+    <a href="/aggregate_report" class="btn btn-success">📈 Semester Aggregate</a>
 </div>
 
-<h2 style="color: #333; margin-bottom: 30px;">📊 Attendance Report</h2>
+<h2 style="color:#333;margin-bottom:20px">📊 Session Attendance Report</h2>
+
+<!-- Summary stats -->
+{% if records %}
+{% set total = records|length %}
+{% set present_count = records|selectattr('attendance_status','equalto','PRESENT')|list|length %}
+{% set late_count = records|selectattr('attendance_status','equalto','LATE')|list|length %}
+{% set absent_count = records|selectattr('attendance_status','equalto','ABSENT')|list|length %}
+{% set incomplete_count = records|selectattr('attendance_status','equalto','INCOMPLETE')|list|length %}
+<div class="stat-grid">
+    <div class="stat-box">
+        <div class="stat-num" style="color:#28a745">{{ present_count }}</div>
+        <div>✅ Present</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-num" style="color:#ffc107">{{ late_count }}</div>
+        <div>🟡 Late</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-num" style="color:#dc3545">{{ absent_count }}</div>
+        <div>❌ Absent</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-num" style="color:#6c757d">{{ incomplete_count }}</div>
+        <div>⏳ Incomplete</div>
+    </div>
+</div>
+{% endif %}
 
 <!-- Filters -->
-<div class="card" style="margin-bottom: 20px;">
-    <h3>🔍 Filter Reports</h3>
+<div class="card" style="margin-bottom:20px">
+    <h3>🔍 Filter</h3>
     <form method="GET" action="/attendance_report">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="department">Department</label>
-                <select id="department" name="department" onchange="this.form.submit()">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+            <div class="form-group" style="margin:0">
+                <label>Department</label>
+                <select name="department" onchange="this.form.submit()">
                     <option value="">All Departments</option>
-                    {% for dept in departments %}
-                        <option value="{{ dept.id }}" {% if selected_dept == dept.id|string %}selected{% endif %}>
-                            {{ dept.name }}
-                        </option>
+                    {% for d in departments %}
+                    <option value="{{ d.id }}" {% if selected_dept==d.id|string %}selected{% endif %}>{{ d.name }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label for="course">Course</label>
-                <select id="course" name="course" onchange="this.form.submit()">
+            <div class="form-group" style="margin:0">
+                <label>Course</label>
+                <select name="course" onchange="this.form.submit()">
                     <option value="">All Courses</option>
-                    {% for course in courses %}
-                        <option value="{{ course.id }}" {% if selected_course == course.id|string %}selected{% endif %}>
-                            {{ course.course_code }} - {{ course.course_title }}
-                        </option>
+                    {% for c in courses %}
+                    <option value="{{ c.id }}" {% if selected_course==c.id|string %}selected{% endif %}>{{ c.course_code }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div style="display: flex; align-items: flex-end;">
-                <a href="/attendance_report" class="btn btn-secondary" style="width: 100%;">Clear Filters</a>
+            <div style="display:flex;align-items:flex-end">
+                <a href="/attendance_report" class="btn btn-secondary" style="width:100%">Clear</a>
             </div>
         </div>
     </form>
@@ -53,113 +95,127 @@
 
 <div class="card">
     {% if records %}
-        <div style="margin-bottom: 20px;">
-            <strong>Total Records:</strong> {{ records|length }}
-        </div>
-
-        <div style="overflow-x: auto;">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Student Name</th>
-                        <th>Matric Number</th>
-                        <th>Course Code</th>
-                        <th>Class Date</th>
-                        <th>Entry Time</th>
-                        <th>Exit Time</th>
-                        <th>Occupancy</th>
-                        <th>Final Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for record in records %}
-                    <tr>
-                        <td><strong>{{ record.name }}</strong></td>
-                        <td>{{ record.matric }}</td>
-                        <td>{{ record.course_code }}</td>
-                        <td>{{ record.start_time.split(' ')[0] }}</td>
-                        <td>
-                            {% if record.entry_time %}
-                                {{ record.entry_time }}
-                                {% if record.entry_valid == 1 %}
-                                    <span style="color: #28a745;">✓</span>
-                                {% else %}
-                                    <span style="color: #dc3545;" title="Late entry">⚠️</span>
-                                {% endif %}
-                            {% else %}
-                                <span style="color: #999;">-</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if record.exit_time %}
-                                {{ record.exit_time }}
-                                {% if record.exit_valid == 1 %}
-                                    <span style="color: #28a745;">✓</span>
-                                {% else %}
-                                    <span style="color: #dc3545;" title="Early exit">⚠️</span>
-                                {% endif %}
-                            {% else %}
-                                <span style="color: #dc3545; font-weight: bold;">NO EXIT</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if record.occupancy_percentage %}
-                                {{ "%.1f"|format(record.occupancy_percentage) }}%
-                                {% if record.occupancy_valid == 1 %}
-                                    <span style="color: #28a745;">✓</span>
-                                {% else %}
-                                    <span style="color: #dc3545;">✗</span>
-                                {% endif %}
-                            {% else %}
-                                <span style="color: #999;">-</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if record.entry_valid == 1 and record.exit_valid == 1 and record.occupancy_valid == 1 %}
-                                <span style="color: #28a745; font-weight: bold; background: #d4edda; padding: 5px 10px; border-radius: 5px;">
-                                    ✅ PRESENT
-                                </span>
-                            {% else %}
-                                <span style="color: #dc3545; font-weight: bold; background: #f8d7da; padding: 5px 10px; border-radius: 5px;">
-                                    ❌ ABSENT
-                                </span>
-                                <br><small style="color: #666;">
-                                    {% if record.entry_valid != 1 %}Late Entry. {% endif %}
-                                    {% if not record.exit_time %}No Exit. {% endif %}
-                                    {% if record.exit_valid != 1 and record.exit_time %}Early Exit. {% endif %}
-                                    {% if record.occupancy_valid != 1 %}Low Occupancy. {% endif %}
-                                </small>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div style="margin-top: 30px; text-align: center;">
-            <button onclick="window.print()" class="btn btn-secondary">🖨️ Print Report</button>
-        </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <strong>{{ records|length }} record(s)</strong>
+        <small style="color:#888">
+            ⚠️ Incomplete = entry marked, exit not yet recorded
+        </small>
+    </div>
+    <div style="overflow-x:auto">
+        <table>
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Course</th>
+                    <th>Date</th>
+                    <th>Entry</th>
+                    <th>Exit</th>
+                    <th>Occupancy</th>
+                    <th>Score</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in records %}
+            <tr>
+                <td>
+                    <strong>{{ r.name }}</strong><br>
+                    <small style="color:#888">{{ r.matric }}</small>
+                </td>
+                <td>
+                    <strong>{{ r.course_code }}</strong><br>
+                    <small style="color:#888">{{ r.dept_name }}</small>
+                </td>
+                <td style="white-space:nowrap">{{ r.start_time.split(' ')[0] }}</td>
+                <td>
+                    {% if r.entry_time %}
+                        <span style="font-size:.85em">{{ r.entry_time.split(' ')[1][:5] }}</span>
+                        {% if r.entry_valid == 1 %}
+                            <span style="color:#28a745" title="On time">✓</span>
+                        {% else %}
+                            <span class="entry-req" title="Late entry">LATE</span>
+                        {% endif %}
+                    {% else %}
+                        <span style="color:#dc3545;font-weight:bold">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if r.exit_time %}
+                        <span style="font-size:.85em">{{ r.exit_time.split(' ')[1][:5] }}</span>
+                        {% if r.exit_valid == 1 %}
+                            <span style="color:#28a745" title="Valid exit">✓</span>
+                        {% else %}
+                            <span class="entry-req" title="Early exit">EARLY</span>
+                        {% endif %}
+                    {% elif r.entry_time %}
+                        <span style="color:#856404;font-weight:bold;font-size:.82em">MUST EXIT</span>
+                    {% else %}
+                        <span style="color:#dc3545">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if r.occupancy_percentage %}
+                        {{ "%.0f"|format(r.occupancy_percentage) }}%
+                        {% if r.occupancy_valid == 1 %}
+                            <span style="color:#28a745">✓</span>
+                        {% else %}
+                            <span style="color:#dc3545">✗</span>
+                        {% endif %}
+                    {% else %}
+                        <span style="color:#999">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if r.attendance_score %}
+                        <strong>{{ "%.0f"|format(r.attendance_score) }}/100</strong>
+                    {% else %}
+                        <span style="color:#999">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% set st = r.attendance_status or 'INCOMPLETE' %}
+                    {% if st == 'PRESENT' %}
+                        <span class="status-badge badge-present">✅ PRESENT</span>
+                    {% elif st == 'LATE' %}
+                        <span class="status-badge badge-late">🟡 LATE</span>
+                        <div class="reasons">
+                            {% if r.entry_valid != 1 %}Late entry. {% endif %}
+                            {% if r.exit_valid != 1 and r.exit_time %}Early exit. {% endif %}
+                            {% if r.occupancy_valid != 1 %}Low occupancy.{% endif %}
+                        </div>
+                    {% elif st == 'ABSENT' %}
+                        <span class="status-badge badge-absent">❌ ABSENT</span>
+                        <div class="reasons">
+                            {% if not r.entry_time %}No entry. {% endif %}
+                            {% if r.geo_violations and r.geo_violations > 3 %}Left area.{% endif %}
+                        </div>
+                    {% else %}
+                        <span class="status-badge badge-incomplete">⏳ INCOMPLETE</span>
+                        {% if r.entry_time %}
+                        <div class="reasons">Exit scan required</div>
+                        {% endif %}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div style="margin-top:20px;text-align:center">
+        <button onclick="window.print()" class="btn btn-secondary">🖨️ Print</button>
+    </div>
     {% else %}
-        <div style="text-align: center; padding: 60px; color: #666;">
-            <div style="font-size: 4em; margin-bottom: 20px;">📋</div>
-            <h3>No Attendance Records Yet</h3>
-            <p>Attendance records will appear here once classes start and students mark attendance.</p>
-        </div>
+    <div style="text-align:center;padding:60px;color:#999">
+        <div style="font-size:4em;margin-bottom:16px">📋</div>
+        <h3>No Records Yet</h3>
+        <p>Records appear once students mark attendance.</p>
+    </div>
     {% endif %}
 </div>
-
 <style>
 @media print {
-    .nav-links, .btn {
-        display: none !important;
-    }
-    .container {
-        box-shadow: none !important;
-    }
-    table {
-        font-size: 0.9em;
-    }
+    .nav-links,.btn,.stat-grid { display:none !important; }
+    .container { box-shadow:none !important; }
 }
 </style>
 {% endblock %}

@@ -141,8 +141,21 @@
             <strong>📍 Classroom Geofence</strong>
             <span style="font-size:.8em;color:#777;font-weight:normal"> — set location on the map</span>
 
-            <!-- Address search -->
-            <div class="map-search-wrap" style="margin-top:12px; position:relative">
+            <!-- Quick location buttons -->
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+                <button type="button" class="btn btn-success" onclick="useMyLocation()"
+                        style="flex:1;min-width:160px">
+                    🎯 Use My Current Location
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="toggleSearch()"
+                        style="flex:1;min-width:140px">
+                    🔍 Search Address
+                </button>
+            </div>
+            <div id="locStatus" style="font-size:.82em;color:#667eea;margin:6px 0;min-height:18px"></div>
+
+            <!-- Address search (hidden by default) -->
+            <div class="map-search-wrap" id="searchWrap" style="position:relative;display:none;margin-top:6px">
                 <input type="text" id="nominatimInput"
                        placeholder="Search address or building name (e.g. University of Lagos)…"
                        autocomplete="off">
@@ -342,19 +355,64 @@ function pickResult(lat, lng, name) {
     placeMarker(parseFloat(lat), parseFloat(lng), name.split(',')[0]);
 }
 
-// ── Auto-zoom to user's location on page load ─────────────────
+// ── Use My Current Location button ───────────────────────────
+function useMyLocation() {
+    const btn = document.querySelector('[onclick="useMyLocation()"]');
+    const st  = document.getElementById('locStatus');
+    btn.textContent = '⏳ Getting location…';
+    btn.disabled    = true;
+    st.textContent  = '';
+
+    // First try cached GPS from global watcher (instant)
+    const cached = window.getStoredLocation ? window.getStoredLocation() : null;
+    if (cached && !isNaN(cached.lat) && cached.age < 30000) {
+        placeMarker(cached.lat, cached.lng, 'My Current Location');
+        st.innerHTML = `✅ Set to your location (±${cached.acc.toFixed(0)}m accuracy)`;
+        st.style.color = '#28a745';
+        btn.textContent = '🎯 Use My Current Location';
+        btn.disabled = false;
+        return;
+    }
+
+    // Otherwise request fresh high-accuracy reading
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            const { latitude, longitude, accuracy } = pos.coords;
+            placeMarker(latitude, longitude, 'My Current Location');
+            st.innerHTML = `✅ Location set (±${accuracy.toFixed(0)}m accuracy)`;
+            st.style.color = '#28a745';
+            btn.textContent = '🎯 Use My Current Location';
+            btn.disabled = false;
+        },
+        err => {
+            st.innerHTML = '❌ ' + err.message + ' — try searching the address instead';
+            st.style.color = '#dc3545';
+            btn.textContent = '🎯 Use My Current Location';
+            btn.disabled = false;
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+}
+
+function toggleSearch() {
+    const wrap = document.getElementById('searchWrap');
+    wrap.style.display = wrap.style.display === 'none' ? 'block' : 'none';
+    if (wrap.style.display === 'block') {
+        document.getElementById('nominatimInput').focus();
+    }
+}
+
+// ── Auto-centre map on page load ───────────────────────────────
 window.addEventListener('load', () => {
-    // Try to use cached GPS from global watcher first
     setTimeout(() => {
         const loc = window.getStoredLocation ? window.getStoredLocation() : null;
         if (loc && !isNaN(loc.lat)) {
             map.setView([loc.lat, loc.lng], 17);
-            status.innerHTML = '📍 Map centred on your current location. Click to set geofence.';
+            status.innerHTML = '📍 Map centred on your location — click to set geofence or use the button above.';
         } else {
-            // Fall back to fresh geolocation
             navigator.geolocation.getCurrentPosition(
                 pos => map.setView([pos.coords.latitude, pos.coords.longitude], 17),
-                () => {} // stay on default
+                () => {}
             );
         }
     }, 800);

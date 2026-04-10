@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}Semester Aggregate{% endblock %}
+{% block subtitle %}End-of-Semester Attendance Aggregate{% endblock %}
+
+{% block extra_css %}
+<style>
+.agg-header {
+    background:linear-gradient(135deg,#667eea,#764ba2);
+    color:#fff; border-radius:12px; padding:20px; margin-bottom:20px;
+}
+.can-sit    { background:#d4edda; border-left:4px solid #28a745; }
+.cannot-sit { background:#f8d7da; border-left:4px solid #dc3545; }
+.pct-bar-wrap { background:#e9ecef; border-radius:6px; height:14px; margin:6px 0; position:relative; }
+.pct-bar      { height:14px; border-radius:6px; transition:width .5s; }
+.threshold-line {
+    position:absolute; top:0; bottom:0; width:2px;
+    background:#333; opacity:.4;
+}
+.badge-can    { background:#d4edda; color:#155724; padding:4px 12px; border-radius:20px; font-weight:bold; font-size:.82em; }
+.badge-cannot { background:#f8d7da; color:#721c24; padding:4px 12px; border-radius:20px; font-weight:bold; font-size:.82em; }
+.formula-box  { background:#f8f9fa; border-radius:8px; padding:12px; font-size:.83em; color:#555; margin:10px 0; }
+.formula-box code { background:#e9ecef; padding:2px 6px; border-radius:4px; font-size:.95em; }
+.weight-note  { font-size:.77em; color:#888; margin-top:4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="nav-links">
+    <a href="/attendance_report" class="btn btn-secondary">← Session Report</a>
+    <a href="/" class="btn btn-secondary">🏠 Home</a>
+    {% if session.get('lecturer_id') %}
+    <a href="/lecturer/dashboard" class="btn btn-secondary">Dashboard</a>
+    {% endif %}
+</div>
+
+<div class="agg-header">
+    <h2 style="color:#fff;margin-bottom:8px">📈 Semester Aggregate Attendance</h2>
+    <p style="opacity:.9;font-size:.9em">
+        Weighted attendance rate per student per course.<br>
+        Students below the exam threshold <strong>cannot sit the exam</strong>.
+    </p>
+</div>
+
+<!-- Formula explanation -->
+<div class="card formula-box">
+    <strong>How it's calculated:</strong><br>
+    <code>Rate = (Present × P_weight + Late × L_weight) / (Total × P_weight) × 100</code><br>
+    <span class="weight-note">
+        Default weights: Present = 1.0 pt &nbsp;|&nbsp; Late = 0.5 pt &nbsp;|&nbsp; Absent = 0 pts<br>
+        Exam threshold: 75% (configurable per course via Admin → Courses → ⚙️ Settings)
+    </span>
+</div>
+
+<!-- Filters -->
+<div class="card" style="margin-bottom:20px">
+    <h3>🔍 Filter</h3>
+    <form method="GET" action="/aggregate_report">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+            <div class="form-group" style="margin:0">
+                <label>Department</label>
+                <select name="department" onchange="this.form.submit()">
+                    <option value="">All</option>
+                    {% for d in departments %}
+                    <option value="{{ d.id }}" {% if selected_dept==d.id|string %}selected{% endif %}>{{ d.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="margin:0">
+                <label>Course</label>
+                <select name="course" onchange="this.form.submit()">
+                    <option value="">All</option>
+                    {% for c in courses %}
+                    <option value="{{ c.id }}" {% if selected_course==c.id|string %}selected{% endif %}>{{ c.course_code }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="margin:0">
+                <label>Student</label>
+                <select name="student" onchange="this.form.submit()">
+                    <option value="">All</option>
+                    {% for s in students %}
+                    <option value="{{ s.id }}" {% if selected_student==s.id|string %}selected{% endif %}>{{ s.name }} ({{ s.matric }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="display:flex;align-items:flex-end">
+                <a href="/aggregate_report" class="btn btn-secondary" style="width:100%">Clear</a>
+            </div>
+        </div>
+    </form>
+</div>
+
+{% if aggregates %}
+<!-- Summary cards -->
+{% set can_count    = aggregates|selectattr('can_sit')|list|length %}
+{% set cannot_count = aggregates|length - can_count %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+    <div class="card can-sit" style="text-align:center;padding:16px">
+        <div style="font-size:2.5em;font-weight:bold;color:#28a745">{{ can_count }}</div>
+        <div>✅ Can Sit Exam</div>
+    </div>
+    <div class="card cannot-sit" style="text-align:center;padding:16px">
+        <div style="font-size:2.5em;font-weight:bold;color:#dc3545">{{ cannot_count }}</div>
+        <div>❌ Cannot Sit Exam</div>
+    </div>
+</div>
+
+<div class="card">
+    <div style="overflow-x:auto">
+        <table>
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Course</th>
+                    <th>Present</th>
+                    <th>Late</th>
+                    <th>Absent</th>
+                    <th>Total</th>
+                    <th>Rate</th>
+                    <th>Exam</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for a in aggregates %}
+            <tr class="{% if not a.can_sit %}cannot-sit{% endif %}">
+                <td>
+                    <strong>{{ a.name }}</strong><br>
+                    <small style="color:#888">{{ a.matric }}</small>
+                </td>
+                <td>
+                    <strong>{{ a.course_code }}</strong><br>
+                    <small style="color:#888">{{ a.dept_name }}</small>
+                </td>
+                <td style="color:#28a745;font-weight:bold;text-align:center">{{ a.present }}</td>
+                <td style="color:#856404;font-weight:bold;text-align:center">{{ a.late }}</td>
+                <td style="color:#dc3545;font-weight:bold;text-align:center">{{ a.absent }}</td>
+                <td style="text-align:center">{{ a.total }}</td>
+                <td style="min-width:140px">
+                    <div style="display:flex;justify-content:space-between;font-size:.85em">
+                        <strong>{{ a.pct }}%</strong>
+                        <span style="color:#888">min {{ a.threshold }}%</span>
+                    </div>
+                    <div class="pct-bar-wrap">
+                        <div class="pct-bar"
+                             style="width:{{ [a.pct,100]|min }}%;
+                                    background:{% if a.can_sit %}#28a745{% else %}#dc3545{% endif %}">
+                        </div>
+                        <div class="threshold-line"
+                             style="left:{{ a.threshold }}%"></div>
+                    </div>
+                    <div class="weight-note">
+                        {{ a.points }}/{{ a.max_points }} pts
+                        (P={{ a.present_weight }}, L={{ a.late_weight }})
+                    </div>
+                </td>
+                <td>
+                    {% if a.can_sit %}
+                        <span class="badge-can">✅ Eligible</span>
+                    {% else %}
+                        <span class="badge-cannot">❌ Barred</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div style="margin-top:20px;text-align:center">
+        <button onclick="window.print()" class="btn btn-secondary">🖨️ Print</button>
+    </div>
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:60px;color:#999">
+    <div style="font-size:4em;margin-bottom:16px">📈</div>
+    <h3>No Aggregate Data Yet</h3>
+    <p>Data appears once sessions are completed (students marked entry + exit).</p>
+    <p style="margin-top:8px;font-size:.85em">
+        Tip: Use <strong>Force Phase → CLOSED</strong> on completed sessions to finalise statuses.
+    </p>
+</div>
+{% endif %}
+
+<style>
+@media print {
+    .nav-links,.btn,.formula-box,.card:first-of-type { display:none !important; }
+    .container { box-shadow:none !important; }
+    .cannot-sit { background:#fff!important; border-left:3px solid #dc3545; }
+}
+</style>
+{% endblock %}

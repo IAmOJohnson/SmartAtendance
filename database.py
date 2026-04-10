@@ -187,3 +187,29 @@ def migrate_existing_db():
 
     conn.commit()
     conn.close()
+
+def migrate_v2():
+    """Add new columns for v2 features: attendance_status, geo_absent_at, scoring weights."""
+    conn = get_connection()
+    c    = conn.cursor()
+
+    def add_col(table, col, definition):
+        existing = [r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()]
+        if col not in existing:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
+            print(f"  + {table}.{col}")
+
+    # attendance_status: PRESENT | LATE | ABSENT | INCOMPLETE
+    add_col("attendance", "attendance_status", "TEXT DEFAULT 'INCOMPLETE'")
+    # When a geo-absence was auto-triggered (student left geofence >5min)
+    add_col("attendance", "geo_absent_at",     "TEXT")
+    # Weighted points for aggregate calculation
+    add_col("attendance", "weighted_points",   "REAL DEFAULT 0.0")
+
+    # Course-level aggregate settings
+    add_col("courses", "exam_threshold",   "REAL DEFAULT 75.0")  # % needed to sit exam
+    add_col("courses", "present_weight",   "REAL DEFAULT 1.0")
+    add_col("courses", "late_weight",      "REAL DEFAULT 0.5")
+
+    conn.commit()
+    conn.close()
